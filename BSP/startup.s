@@ -50,8 +50,10 @@
         EXTERN  SystemInit
         PUBLIC  __vector_table
 
-      EXTERN  ContextSwitch
-      EXTERN  OS_CPU_SysTickHandler
+        EXTERN  ContextSwitch
+        EXTERN  OS_CPU_SysTickHandler
+
+        EXTERN  HardFault_Handler_C
 
         DATA
 __vector_table
@@ -179,7 +181,16 @@ NMI_Handler
         PUBWEAK HardFault_Handler
         SECTION .text:CODE:NOROOT:REORDER(1)
 HardFault_Handler
-        B HardFault_Handler
+        // TST is AND operation but not store result back to the register
+        TST     LR, #4
+        // EQ - zero bit is set when all bits is zero
+        ITE     EQ
+        MRSEQ   R0, MSP
+        MRSNE   R0, PSP
+
+        MOV     R1, LR
+
+        BL      HardFault_Handler_C
 
         PUBWEAK MemManage_Handler
         SECTION .text:CODE:NOROOT:REORDER(1)

@@ -782,7 +782,7 @@
                 </option>
                 <option>
                     <name>IlinkIcfFile</name>
-                    <state>$TOOLKIT_DIR$\config\linker\ST\stm32f401xE.icf</state>
+                    <state>$TOOLKIT_DIR$\config\linker\ST\stm32l475xG.icf</state>
                 </option>
                 <option>
                     <name>IlinkIcfFileSlave</name>
@@ -2418,6 +2418,9 @@
             </excluded>
         </file>
         <file>
+            <name>$PROJ_DIR$\BSP\fault_handlers.c</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\BSP\hw_init.c</name>
         </file>
         <file>
@@ -2538,7 +2541,7 @@
             <name>$PROJ_DIR$\PJDF\pjdf.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\PJDF\pjdfCtrlI2C.h</name>
+            <name>$PROJ_DIR$\PJDF\pjdfCtrlI2c.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\PJDF\pjdfCtrlLcdILI9341.h</name>

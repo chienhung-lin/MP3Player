@@ -2655,6 +2655,9 @@
             <name>$PROJ_DIR$\BSP\datainit.c</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\BSP\fault_handlers.c</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\BSP\hw_init.c</name>
         </file>
         <file>
@@ -2763,7 +2766,7 @@
             <name>$PROJ_DIR$\PJDF\pjdf.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\PJDF\pjdfCtrlI2C.h</name>
+            <name>$PROJ_DIR$\PJDF\pjdfCtrlI2c.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\PJDF\pjdfCtrlLcdILI9341.h</name>
