@@ -46,9 +46,9 @@ Return Value:
 void main() {
 INT8U err;
     Hw_init();
-    // DRIVER TODO
+    // DRIVER TODO-done
     // Delete the following line when implementing the PJDF I2C driver:
-    BspI2C1_init();
+    // BspI2C1_init();
     
     RETAILMSG(1, ("MP3 Player Demo: Built %s %s.\r\n\r\n",
         __DATE__,

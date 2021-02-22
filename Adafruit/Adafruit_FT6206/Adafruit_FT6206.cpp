@@ -112,26 +112,10 @@ void Adafruit_FT6206::readData(uint16_t *x, uint16_t *y) {
   uint8_t i2cdat[16];
   uint32_t count = 16;
   i2cdat[0] = 0;
-    // DRIVER TODO
+    // DRIVER TODO-done
     // Uncomment the Read() call and migrate the following code to PjdfInternalI2C.c
-    // Read(hI2C, i2cdat, &count);
-  
-    OS_CPU_SR cpu_sr = 0;
-    OS_ENTER_CRITICAL();
-    I2C_start(I2C1, FT6206_ADDR<<1, LL_I2C_GENERATE_START_WRITE, 1);
-    I2C_write(I2C1, (uint8_t)0);  
-    BspI2c_WaitWithTimeoutReset(LL_I2C_IsActiveFlag_STOP, 1);
-    I2C_start(I2C1, FT6206_ADDR<<1, LL_I2C_GENERATE_START_READ, count);
-    
-    uint8_t i;
-    for (i = 0; i < count - 1; i++) 
-    {
-        i2cdat[i] = I2C_read_ack(I2C1);
-    }
-    i2cdat[i] = I2C_read_nack(I2C1);
-    BspI2c_WaitWithTimeoutReset(LL_I2C_IsActiveFlag_STOP, 1);
-    OS_EXIT_CRITICAL();
 
+    Read(hI2C, i2cdat, &count);
   
   /*
   for (int16_t i=0; i<0x20; i++) {
@@ -198,20 +182,9 @@ TS_Point Adafruit_FT6206::getPoint(void) {
 uint8_t Adafruit_FT6206::readRegister8(uint8_t reg) {
     uint32_t count = 1;
     
-    // DRIVER TODO
+    // DRIVER TODO-done
     // Uncomment the Read() call and migrate the following code to PjdfInternalI2C.c
-    // Read(hI2C, &reg, &count);
-
-    OS_CPU_SR cpu_sr = 0;
-    OS_ENTER_CRITICAL();
-    I2C_start(I2C1, FT6206_ADDR<<1, LL_I2C_GENERATE_START_WRITE, 1);
-    I2C_write(I2C1, reg);  
-    BspI2c_WaitWithTimeoutReset(LL_I2C_IsActiveFlag_STOP, 1);
-    I2C_start(I2C1, FT6206_ADDR<<1, LL_I2C_GENERATE_START_READ, count);
-    
-    reg = I2C_read_nack(I2C1);
-    BspI2c_WaitWithTimeoutReset(LL_I2C_IsActiveFlag_STOP, 1);
-    OS_EXIT_CRITICAL();
+    Read(hI2C, &reg, &count);
 
   //  Serial.print("$"); Serial.print(reg, HEX); 
   //  Serial.print(": 0x"); Serial.println(x, HEX);
@@ -223,26 +196,11 @@ void Adafruit_FT6206::writeRegister8(uint8_t reg, uint8_t val) {
     uint8_t buf[2];
     buf[0] = reg;
     buf[1] = val;
-    uint32_t count = 1;
+    uint32_t count = 2;
 
-    // DRIVER TODO
+    // DRIVER TODO-done
     // Uncomment the Write() call and migrate the following code to PjdfInternalI2C.c
-    // Write(hI2C, buf, &count);
-    
-    OS_CPU_SR cpu_sr = 0;
-    OS_ENTER_CRITICAL();
-    
-    LL_I2C_ClearFlag_STOP(I2C1);
-    I2C_start(I2C1, FT6206_ADDR<<1, LL_I2C_GENERATE_START_WRITE, 1);
-    I2C_write(I2C1, buf[0]);
-    BspI2c_WaitWithTimeoutReset(LL_I2C_IsActiveFlag_STOP, 1);
-    
-    LL_I2C_ClearFlag_STOP(I2C1);
-    I2C_start(I2C1, FT6206_ADDR<<1, LL_I2C_GENERATE_START_WRITE, count);
-    I2C_write(I2C1, buf[1]);
-    BspI2c_WaitWithTimeoutReset(LL_I2C_IsActiveFlag_STOP, 1);
-    
-    OS_EXIT_CRITICAL();
+    Write(hI2C, buf, &count);
     
 }
 

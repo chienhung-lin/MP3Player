@@ -140,6 +140,7 @@ static void DrawLcdContents()
 void LcdTouchDemoTask(void* pdata)
 {
     PjdfErrCode pjdfErr;
+    INT8U  device_address;
     INT32U length;
 
     char buf[BUFSIZE];
@@ -169,14 +170,23 @@ void LcdTouchDemoTask(void* pdata)
     
     PrintWithBuf(buf, BUFSIZE, "Initializing FT6206 touchscreen controller\n");
     
-    // DRIVER TODO
+    // DRIVER TODO-done
     // Open a HANDLE for accessing device PJDF_DEVICE_ID_I2C1
-    // <your code here>
+    // <your code here>    
+    HANDLE hI2C1 = Open(PJDF_DEVICE_ID_I2C1, 0);
+    if (!PJDF_IS_VALID_HANDLE(hI2C1)) while(1);
+    
     // Call Ioctl on that handle to set the I2C device address to FT6206_ADDR
     // <your code here>
+    device_address = FT6206_ADDR;
+    length = sizeof(device_address);
+    pjdfErr = Ioctl(hI2C1, PJDF_CTRL_I2C_SET_DEVICE_ADDRESS, &device_address, &length);
+    if(PJDF_IS_ERROR(pjdfErr)) while(1);
+
     // Call setPjdfHandle() on the touch contoller to pass in the I2C handle
     // <your code here>
-
+    touchCtrl.setPjdfHandle(hI2C1);
+        
     if (! touchCtrl.begin(40)) {  // pass in 'sensitivity' coefficient
         PrintWithBuf(buf, BUFSIZE, "Couldn't start FT6206 touchscreen controller\n");
         while (1);

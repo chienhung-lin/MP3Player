@@ -39,7 +39,8 @@ struct _DriverInternal
 };
 
 
-// DRIVER TODO: add the prototype of your driver's Init() implementation here:
+// DRIVER TODO-done: add the prototype of your driver's Init() implementation here:
+PjdfErrCode InitI2C(DriverInternal *pDriver, char *pName);
 PjdfErrCode InitSPI(DriverInternal *pDriver, char *pName);
 PjdfErrCode InitMp3VS1053(DriverInternal *pDriver, char *pName);
 PjdfErrCode InitLcdILI9341(DriverInternal *pDriver, char *pName);

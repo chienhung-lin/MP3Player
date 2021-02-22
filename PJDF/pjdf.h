@@ -22,7 +22,7 @@ typedef INT8S HANDLE;
 #define PJDF_IS_VALID_HANDLE(x)  (x > 0) // A valid device driver handle is a positive number
 
 
-// DRIVER TODO LIST FOR ADDING A NEW DRIVER: 
+// DRIVER TODO-done LIST FOR ADDING A NEW DRIVER: 
 //    - define a new PJDF_DEVICE_ID_<MYDEVICE> below
 //    - reference it under PJDF_DEVICE_IDS below
 //    - add a new pjdfInternal<mydevice>.c module to implement the pjdfInternal.h interface
@@ -34,12 +34,14 @@ typedef INT8S HANDLE;
 // Master list of device drivers.
 // These are the identifiers used by applications to Open device drivers.
 #define PJDF_DEVICE_ID_SPI1  "/dev/spi1"
+#define PJDF_DEVICE_ID_I2C1  "/dev/i2c1"
 #define PJDF_DEVICE_ID_MP3_VS1053   "/dev/mp3_vs1053"
 #define PJDF_DEVICE_ID_LCD_ILI9341   "/dev/lcd_ili9341"
 #define PJDF_DEVICE_ID_SD_ADAFRUIT   "/dev/sd_adafruit"
      
 #define PJDF_DEVICE_IDS \
         PJDF_DEVICE_ID_SPI1, \
+        PJDF_DEVICE_ID_I2C1, \
         PJDF_DEVICE_ID_MP3_VS1053, \
         PJDF_DEVICE_ID_LCD_ILI9341, \
         PJDF_DEVICE_ID_SD_ADAFRUIT, \
