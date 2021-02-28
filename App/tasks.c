@@ -22,6 +22,7 @@ Module Description:
 #include <Adafruit_GFX.h>    // Core graphics library
 #include <Adafruit_ILI9341.h>
 #include <Adafruit_FT6206.h>
+#include "SD.h"
 
 Adafruit_ILI9341 lcdCtrl = Adafruit_ILI9341(); // The LCD controller
 
@@ -100,6 +101,10 @@ void StartupTask(void* pdata)
     pjdfErr = Ioctl(hSD, PJDF_CTRL_SD_SET_SPI_HANDLE, &hSPI, &length);
     if(PJDF_IS_ERROR(pjdfErr)) while(1);
 
+    if (!SD.begin(hSD)) {
+        PrintWithBuf(buf, PRINTBUFMAX, "Attempt to initialize SD card failed.\n");
+    }
+    
     // Create the test tasks
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the application tasks\n");
 
@@ -238,7 +243,7 @@ void Mp3DemoTask(void* pdata)
     HANDLE hMp3 = Open(PJDF_DEVICE_ID_MP3_VS1053, 0);
     if (!PJDF_IS_VALID_HANDLE(hMp3)) while(1);
 
-	PrintWithBuf(buf, BUFSIZE, "Opening MP3 SPI driver: %s\n", MP3_SPI_DEVICE_ID);
+    PrintWithBuf(buf, BUFSIZE, "Opening MP3 SPI driver: %s\n", MP3_SPI_DEVICE_ID);
     // We talk to the MP3 decoder over a SPI interface therefore
     // open an instance of that SPI driver and pass the handle to 
     // the MP3 driver.
@@ -250,7 +255,8 @@ void Mp3DemoTask(void* pdata)
     if(PJDF_IS_ERROR(pjdfErr)) while(1);
 
     // Send initialization data to the MP3 decoder and run a test
-	PrintWithBuf(buf, BUFSIZE, "Starting MP3 device test\n");
+    PrintWithBuf(buf, BUFSIZE, "Starting MP3 device test\n");
+    
     Mp3Init(hMp3);
     int count = 0;
     
@@ -258,7 +264,8 @@ void Mp3DemoTask(void* pdata)
     {
         OSTimeDly(500);
         PrintWithBuf(buf, BUFSIZE, "Begin streaming sound file  count=%d\n", ++count);
-        Mp3Stream(hMp3, (INT8U*)Train_Crossing, sizeof(Train_Crossing)); 
+        // Mp3Stream(hMp3, (INT8U*)Train_Crossing, sizeof(Train_Crossing)); 
+        Mp3StreamSDFile(hMp3, "TRAIN001.mp3");
         PrintWithBuf(buf, BUFSIZE, "Done streaming sound file  count=%d\n", count);
     }
 }
