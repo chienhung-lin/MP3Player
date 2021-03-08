@@ -33,8 +33,8 @@
 
 #define MP3_SPI_DEVICE_ID  PJDF_DEVICE_ID_SPI1
 
-#define MP3_SPI_DATARATE LL_SPI_BAUDRATEPRESCALER_DIV8  // Tune to find optimal value MP3 decoder will work with. Works with 16MHz HCLK
-//#define MP3_SPI_DATARATE LL_SPI_BAUDRATEPRESCALER_DIV32  // Tune to find optimal value MP3 decoder will work with. Works with 80MHz HCLK
+//#define MP3_SPI_DATARATE LL_SPI_BAUDRATEPRESCALER_DIV8  // Tune to find optimal value MP3 decoder will work with. Works with 16MHz HCLK
+#define MP3_SPI_DATARATE LL_SPI_BAUDRATEPRESCALER_DIV32  // Tune to find optimal value MP3 decoder will work with. Works with 80MHz HCLK
 
 // some command strings to send to the VS1053 MP3 decoder:
 extern const INT8U BspMp3SineWave[];

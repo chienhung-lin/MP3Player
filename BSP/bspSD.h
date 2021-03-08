@@ -25,8 +25,8 @@
 
 #define SD_SPI_DEVICE_ID  PJDF_DEVICE_ID_SPI1
 
-#define SD_SPI_DATARATE  LL_SPI_BAUDRATEPRESCALER_DIV2  // Tune to find optimal value SD controller will work with. OK with 16mhz HCLK
-//#define SD_SPI_DATARATE  LL_SPI_BAUDRATEPRESCALER_DIV4  // Tune to find optimal value SD controller will work with. OK with 80MHz HCLK
+//#define SD_SPI_DATARATE  LL_SPI_BAUDRATEPRESCALER_DIV2  // Tune to find optimal value SD controller will work with. OK with 16mhz HCLK
+#define SD_SPI_DATARATE  LL_SPI_BAUDRATEPRESCALER_DIV4  // Tune to find optimal value SD controller will work with. OK with 80MHz HCLK
 
 void BspSDInitAdafruit();
 

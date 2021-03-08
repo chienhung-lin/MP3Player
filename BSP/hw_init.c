@@ -14,7 +14,7 @@ void SystemClock_Config80(void);
 // Boot up processor
 void Hw_init(void) {
   
-    SystemClock_Config16();
+    SystemClock_Config80();
     UartInit(115200);
     NVIC_SetPriority(PendSV_IRQn, 0xFF); // Lowest possible priority
 }
