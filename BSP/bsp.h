@@ -11,7 +11,7 @@
 #define __BSP_H
 
 // Add interfaces to the specific hardware for use by application code
-#include <stdio.h>
+//#include <stdio.h>
 #include <string.h>
 
 #include <os_cpu.h>

@@ -36,7 +36,7 @@ long MapTouchToScreen(long x, long in_min, long in_max, long out_min, long out_m
 }
 
 
-#include "train_crossing.h"
+//#include "train_crossing.h"
 
 #define BUFSIZE 256
 
@@ -47,21 +47,70 @@ long MapTouchToScreen(long x, long in_min, long in_max, long out_min, long out_m
 
 ************************************************************************************/
 
-static OS_STK   LcdTouchDemoTaskStk[APP_CFG_TASK_START_STK_SIZE];
+static OS_STK   TouchTaskStk[APP_CFG_TASK_START_STK_SIZE];
 static OS_STK   Mp3DemoTaskStk[APP_CFG_TASK_START_STK_SIZE];
+static OS_STK   LcdDisplayTaskStk[APP_CFG_TASK_START_STK_SIZE];
 
-     
 // Task prototypes
-void LcdTouchDemoTask(void* pdata);
+void TouchTask(void* pdata);
 void Mp3DemoTask(void* pdata);
-
-
+void LcdDisplayTask(void* pdata);
 
 // Useful functions
 void PrintToLcdWithBuf(char *buf, int size, char *format, ...);
 
 // Globals
 BOOLEAN nextSong = OS_FALSE;
+
+/*******************************************************************************
+
+UI Objects
+
+*******************************************************************************/
+
+/* Button Geomertic Infomation */
+#define PLAY_X (10U)
+#define PLAY_Y (170U)
+#define PLAY_W (60U)
+#define PLAY_H (40U)
+
+#define PAUSE_X (80U)
+#define PAUSE_Y (170U)
+#define PAUSE_W (60U)
+#define PAUSE_H (40U)
+
+#define STOP_X (150U)
+#define STOP_Y (170U)
+#define STOP_W (60U)
+#define STOP_H (40U)
+
+#define VOL_UP_X (10U)
+#define VOL_UP_Y (230U)
+#define VOL_UP_W (40U)
+#define VOL_UP_H (40U)
+
+#define VOL_DW_X (60U)
+#define VOL_DW_Y (230U)
+#define VOL_DW_W (40U)
+#define VOL_DW_H (40U)
+
+#define PREV_X (110U)
+#define PREV_Y (230U)
+#define PREV_W (40U)
+#define PREV_H (40U)
+
+#define NEXT_X (160U)
+#define NEXT_Y (230U)
+#define NEXT_W (40U)
+#define NEXT_H (40U)
+
+static Adafruit_GFX_Button play_bu;
+static Adafruit_GFX_Button pause_bu;
+static Adafruit_GFX_Button stop_bu;
+static Adafruit_GFX_Button vol_up_bu;
+static Adafruit_GFX_Button vol_down_bu;
+static Adafruit_GFX_Button prev_bu;
+static Adafruit_GFX_Button next_bu;
 
 /************************************************************************************
 
@@ -78,8 +127,8 @@ void StartupTask(void* pdata)
     static HANDLE hSD = 0;
     static HANDLE hSPI = 0;
 
-	PrintWithBuf(buf, BUFSIZE, "StartupTask: Begin\n");
-	PrintWithBuf(buf, BUFSIZE, "StartupTask: Starting timer tick\n");
+    PrintWithBuf(buf, BUFSIZE, "StartupTask: Begin\n");
+    PrintWithBuf(buf, BUFSIZE, "StartupTask: Starting timer tick\n");
 
     // Start the system tick
     SetSysTick(OS_TICKS_PER_SEC);
@@ -109,12 +158,14 @@ void StartupTask(void* pdata)
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the application tasks\n");
 
     // The maximum number of tasks the application can have is defined by OS_MAX_TASKS in os_cfg.h
-    OSTaskCreate(Mp3DemoTask, (void*)0, &Mp3DemoTaskStk[APP_CFG_TASK_START_STK_SIZE-1], APP_TASK_TEST1_PRIO);
-    OSTaskCreate(LcdTouchDemoTask, (void*)0, &LcdTouchDemoTaskStk[APP_CFG_TASK_START_STK_SIZE-1], APP_TASK_TEST2_PRIO);
+    OSTaskCreate(Mp3DemoTask, (void*)0, &Mp3DemoTaskStk[APP_CFG_TASK_START_STK_SIZE-1], MP3PLAY_TASKK_PRIO);
+    OSTaskCreate(TouchTask, (void*)0, &TouchTaskStk[APP_CFG_TASK_START_STK_SIZE-1], TOUCH_TASKK_PRIO);
+    OSTaskCreate(LcdDisplayTask, (void*)0, &LcdDisplayTaskStk[APP_CFG_TASK_START_STK_SIZE-1], DISPLAY_TASK_PRIO);
 
     // Delete ourselves, letting the work be done in the new tasks.
     PrintWithBuf(buf, BUFSIZE, "StartupTask: deleting self\n");
-	OSTaskDel(OS_PRIO_SELF);
+    
+    OSTaskDel(OS_PRIO_SELF);
 }
 
 static void DrawLcdContents()
@@ -137,26 +188,46 @@ static void DrawLcdContents()
 
 }
 
+static void DrawGrid(Adafruit_ILI9341 *gfx, 
+                     uint32_t u32_x, uint32_t u32_y,
+                     uint32_t u32_w, uint32_t u32_h,
+                     uint32_t u32_x_grid, uint32_t u32_y_grid,
+                     uint32_t u32_color)
+{
+
+    uint32_t u32_i, u32_j;
+    
+    // draw horizontal line
+    for (u32_j = u32_y; u32_j < u32_y+u32_h; u32_j += u32_y_grid) {
+        gfx->drawFastHLine(u32_x, u32_j, u32_w, u32_color);
+    }
+    
+    // draw vertical line
+    for (u32_i = u32_x; u32_i < u32_x+u32_w; u32_i += u32_x_grid) {
+        gfx->drawFastVLine(u32_i, u32_y, u32_h, ILI9341_WHITE);
+    }
+}
+
 /************************************************************************************
 
-   Runs LCD/Touch demo code
+   Runs Lcd Display code
 
 ************************************************************************************/
-void LcdTouchDemoTask(void* pdata)
+void LcdDisplayTask(void* pdata)
 {
     PjdfErrCode pjdfErr;
-    INT8U  device_address;
+    INT8U  device_address, u8_error;
     INT32U length;
 
     char buf[BUFSIZE];
-    PrintWithBuf(buf, BUFSIZE, "LcdTouchDemoTask: starting\n");
+    PrintWithBuf(buf, BUFSIZE, "LcdDisplayTask: starting\n");
 
     PrintWithBuf(buf, BUFSIZE, "Opening LCD driver: %s\n", PJDF_DEVICE_ID_LCD_ILI9341);
     // Open handle to the LCD driver
     HANDLE hLcd = Open(PJDF_DEVICE_ID_LCD_ILI9341, 0);
     if (!PJDF_IS_VALID_HANDLE(hLcd)) while(1);
 
-	PrintWithBuf(buf, BUFSIZE, "Opening LCD SPI driver: %s\n", LCD_SPI_DEVICE_ID);
+    PrintWithBuf(buf, BUFSIZE, "Opening LCD SPI driver: %s\n", LCD_SPI_DEVICE_ID);
     // We talk to the LCD controller over a SPI interface therefore
     // open an instance of that SPI driver and pass the handle to 
     // the LCD driver.
@@ -171,7 +242,105 @@ void LcdTouchDemoTask(void* pdata)
     lcdCtrl.setPjdfHandle(hLcd);
     lcdCtrl.begin();
 
-    DrawLcdContents();
+    // UI Initialize
+    //DrawLcdContents();
+    
+    lcdCtrl.fillScreen(ILI9341_BLACK);
+    
+    DrawGrid(&lcdCtrl, 0, 0, ILI9341_TFTWIDTH, ILI9341_TFTHEIGHT,
+             20, 20, ILI9341_WHITE);
+    
+    lcdCtrl.drawRect(10, 10, 220, 80, ILI9341_MAROON);
+    
+    lcdCtrl.drawRect(10, 110, 220, 40, ILI9341_MAROON);
+    
+#if 1
+    play_bu.initButton(&lcdCtrl,
+                           PLAY_X + PLAY_W/2, \
+                           PLAY_Y + PLAY_H/2, \
+                           PLAY_W, PLAY_H, \
+                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
+                           "Play", 2);
+    
+    pause_bu.initButton(&lcdCtrl,
+                           PAUSE_X + PAUSE_W/2, \
+                           PAUSE_Y + PAUSE_H/2, \
+                           PAUSE_W, PAUSE_H, \
+                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
+                           "Pause", 2);
+    
+    stop_bu.initButton(&lcdCtrl,
+                           STOP_X + STOP_W/2, \
+                           STOP_Y + STOP_H/2, \
+                           STOP_W, STOP_H, \
+                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
+                           "Stop", 2);
+    
+    vol_up_bu.initButton(&lcdCtrl,
+                           VOL_UP_X + VOL_UP_W/2, \
+                           VOL_UP_Y + VOL_UP_H/2, \
+                           VOL_DW_W, VOL_UP_H, \
+                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
+                           "+", 2);
+    
+    vol_down_bu.initButton(&lcdCtrl,
+                           VOL_DW_X + VOL_DW_W/2, \
+                           VOL_DW_Y + VOL_DW_H/2, \
+                           VOL_DW_W, VOL_DW_H, \
+                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
+                           "-", 2);
+
+    prev_bu.initButton(&lcdCtrl,
+                           PREV_X + PREV_W/2, \
+                           PREV_Y + PREV_H/2, \
+                           PREV_W, PREV_H, \
+                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
+                           "<", 2);
+    
+    next_bu.initButton(&lcdCtrl,
+                           NEXT_X + NEXT_W/2, \
+                           NEXT_Y + NEXT_H/2, \
+                           NEXT_W, NEXT_H, \
+                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
+                           ">", 2);
+
+    play_bu.drawButton();
+    pause_bu.drawButton();
+    stop_bu.drawButton();
+    vol_up_bu.drawButton();
+    vol_down_bu.drawButton();
+    prev_bu.drawButton();
+    next_bu.drawButton();
+#endif
+    
+    u8_error = OSTaskResume(DISPLAY_TASK_PRIO);
+    if (u8_error != OS_ERR_NONE) {
+        PrintWithBuf(buf, BUFSIZE, "Display Task resume error: %d\n", u8_error);
+    }
+    u8_error = OSTaskSuspend(OS_PRIO_SELF);
+    while (1) {
+//        swtich () {
+//        case ;
+//        case ;
+//        default;
+//        }
+    }
+    
+}
+
+/************************************************************************************
+
+   Runs Touch code
+
+************************************************************************************/
+void TouchTask(void* pdata)
+{
+    PjdfErrCode pjdfErr;
+    INT8U  device_address, u8_error;
+    INT32U length;
+
+    char buf[BUFSIZE];
+    PrintWithBuf(buf, BUFSIZE, "TouchTask: starting\n");
     
     PrintWithBuf(buf, BUFSIZE, "Initializing FT6206 touchscreen controller\n");
     
@@ -197,7 +366,13 @@ void LcdTouchDemoTask(void* pdata)
         while (1);
     }
     
-    int currentcolor = ILI9341_RED;
+    // wait for lcd initialize finished
+    PrintWithBuf(buf, BUFSIZE, "Wait for LcdDisplay task...\n");
+    u8_error = OSTaskSuspend(OS_PRIO_SELF);
+    if (u8_error != OS_ERR_NONE) {
+        PrintWithBuf(buf, BUFSIZE, "Touch Task exit suspend error: %d\n", u8_error);
+    }
+    
 
     while (1) { 
         boolean touched;
@@ -206,23 +381,14 @@ void LcdTouchDemoTask(void* pdata)
         
         if (! touched) {
             OSTimeDly(5);
-            continue;
+        } else {
+            TS_Point touch_p, convert_p = TS_Point();
+            
+            touch_p = touchCtrl.getPoint();
+            convert_p.x = MapTouchToScreen(touch_p.x, 0, ILI9341_TFTWIDTH, ILI9341_TFTWIDTH, 0);
+            convert_p.y = MapTouchToScreen(touch_p.y, 0, ILI9341_TFTHEIGHT, ILI9341_TFTHEIGHT, 0);
+
         }
-        
-        TS_Point point;
-        
-        point = touchCtrl.getPoint();
-        if (point.x == 0 && point.y == 0)
-        {
-            continue; // usually spurious, so ignore
-        }
-        
-        // transform touch orientation to screen orientation.
-        TS_Point p = TS_Point();
-        p.x = MapTouchToScreen(point.x, 0, ILI9341_TFTWIDTH, ILI9341_TFTWIDTH, 0);
-        p.y = MapTouchToScreen(point.y, 0, ILI9341_TFTHEIGHT, ILI9341_TFTHEIGHT, 0);
-        
-        lcdCtrl.fillCircle(p.x, p.y, PENRADIUS, currentcolor);
     }
 }
 /************************************************************************************

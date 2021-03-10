@@ -10,9 +10,9 @@
 #define __PRINT_H__
 
 // To use Kustaa Nyholm's printf, comment stdio.h and uncomment the 2 lines after it
-#include <stdio.h>
-// #include "printf.h"
-// #define snprintf PrintWithBuf
+//#include <stdio.h>
+#include "printf.h"
+#define snprintf PrintWithBuf
 
 #include <stdarg.h>
 #include <os_cpu.h>

@@ -56,9 +56,9 @@
 
 //task priorities
 #define APP_TASK_START_PRIO                 4
-#define APP_TASK_TEST1_PRIO                 5
-#define APP_TASK_TEST2_PRIO                 6
-#define APP_TASK_TEST3_PRIO                 7
+#define MP3PLAY_TASKK_PRIO                  5
+#define TOUCH_TASKK_PRIO                    6
+#define DISPLAY_TASK_PRIO                   7
 #define  OS_TASK_TMR_PRIO                (OS_LOWEST_PRIO - 2u)
 
 
