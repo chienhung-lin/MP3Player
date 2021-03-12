@@ -104,6 +104,15 @@ UI Objects
 #define NEXT_W (40U)
 #define NEXT_H (40U)
 
+#define UI_BUTTON_SIZES (sizeof(button_array)/sizeof(button_array[0]))
+
+typedef void (*bu_e_cb_t)(Adafruit_ILI9341 *, void *);
+
+typedef struct ui_button_type {
+    Adafruit_GFX_Button *button;
+    bu_e_cb_t bu_event_cb;
+} ui_button_t;
+
 static Adafruit_GFX_Button play_bu;
 static Adafruit_GFX_Button pause_bu;
 static Adafruit_GFX_Button stop_bu;
@@ -111,6 +120,95 @@ static Adafruit_GFX_Button vol_up_bu;
 static Adafruit_GFX_Button vol_down_bu;
 static Adafruit_GFX_Button prev_bu;
 static Adafruit_GFX_Button next_bu;
+
+static void play_bu_e_cb(Adafruit_ILI9341 *, void *);
+static void pause_bu_e_cb(Adafruit_ILI9341 *, void *);
+static void stop_bu_e_cb(Adafruit_ILI9341 *, void *);
+static void vol_up_bu_e_cb(Adafruit_ILI9341 *, void *);
+static void vol_down_bu_e_cb(Adafruit_ILI9341 *, void *);
+static void prev_bu_e_cb(Adafruit_ILI9341 *, void *);
+static void next_bu_e_cb(Adafruit_ILI9341 *, void *);
+
+static ui_button_t button_array[] =
+{
+    { &play_bu, play_bu_e_cb }, 
+    { &pause_bu, pause_bu_e_cb }, 
+    { &stop_bu, stop_bu_e_cb },
+    { &vol_up_bu, vol_up_bu_e_cb },
+    { &vol_down_bu, vol_down_bu_e_cb },
+    { &prev_bu, prev_bu_e_cb },
+    { &next_bu, next_bu_e_cb }
+};
+
+void play_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+{
+    char *buf = (char *)_arg;
+    _gfx->fillRect(10, 10, 220, 80, ILI9341_BLACK);
+    _gfx->setCursor(40, 60);
+    _gfx->setTextColor(ILI9341_WHITE);  
+    _gfx->setTextSize(2);
+    PrintToLcdWithBuf(buf, BUFSIZE, "PLAY");
+}
+
+void pause_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+{    
+    char *buf = (char *)_arg;
+    _gfx->fillRect(10, 10, 220, 80, ILI9341_BLACK);
+    _gfx->setCursor(40, 60);
+    _gfx->setTextColor(ILI9341_WHITE);  
+    _gfx->setTextSize(2);
+    PrintToLcdWithBuf(buf, BUFSIZE, "PAUSE");
+}
+
+void stop_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+{
+    char *buf = (char *)_arg;
+    _gfx->fillRect(10, 10, 220, 80, ILI9341_BLACK);
+    _gfx->setCursor(40, 60);
+    _gfx->setTextColor(ILI9341_WHITE);  
+    _gfx->setTextSize(2);
+    PrintToLcdWithBuf(buf, BUFSIZE, "STOP");
+}
+
+void vol_up_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+{
+    char *buf = (char *)_arg;
+    _gfx->fillRect(10, 10, 220, 80, ILI9341_BLACK);
+    _gfx->setCursor(40, 60);
+    _gfx->setTextColor(ILI9341_WHITE);  
+    _gfx->setTextSize(2);
+    PrintToLcdWithBuf(buf, BUFSIZE, "VOL UP");
+}
+
+void vol_down_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+{
+    char *buf = (char *)_arg;
+    _gfx->fillRect(10, 10, 220, 80, ILI9341_BLACK);
+    _gfx->setCursor(40, 60);
+    _gfx->setTextColor(ILI9341_WHITE);  
+    _gfx->setTextSize(2);
+    PrintToLcdWithBuf(buf, BUFSIZE, "VOL DOWN");
+}
+
+void prev_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+{
+    char *buf = (char *)_arg;
+    _gfx->fillRect(10, 10, 220, 80, ILI9341_BLACK);
+    _gfx->setCursor(40, 60);
+    _gfx->setTextColor(ILI9341_WHITE);  
+    _gfx->setTextSize(2);
+    PrintToLcdWithBuf(buf, BUFSIZE, "PREV");
+}
+
+void next_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+{
+    char *buf = (char *)_arg;
+    _gfx->fillRect(10, 10, 220, 80, ILI9341_BLACK);
+    _gfx->setCursor(40, 60);
+    _gfx->setTextColor(ILI9341_WHITE);  
+    _gfx->setTextSize(2);
+    PrintToLcdWithBuf(buf, BUFSIZE, "NEXT");
+}
 
 /************************************************************************************
 
@@ -338,6 +436,8 @@ void TouchTask(void* pdata)
     PjdfErrCode pjdfErr;
     INT8U  device_address, u8_error;
     INT32U length;
+    uint32_t u32_i;
+    ui_button_t *bu = NULL;
 
     char buf[BUFSIZE];
     PrintWithBuf(buf, BUFSIZE, "TouchTask: starting\n");
@@ -387,10 +487,18 @@ void TouchTask(void* pdata)
             touch_p = touchCtrl.getPoint();
             convert_p.x = MapTouchToScreen(touch_p.x, 0, ILI9341_TFTWIDTH, ILI9341_TFTWIDTH, 0);
             convert_p.y = MapTouchToScreen(touch_p.y, 0, ILI9341_TFTHEIGHT, ILI9341_TFTHEIGHT, 0);
-
+            
+            for (u32_i = 0;u32_i < UI_BUTTON_SIZES;++u32_i) {
+                bu = &button_array[u32_i];
+                if (bu->button->contains(convert_p.x, convert_p.y)) {
+                    bu->bu_event_cb(&lcdCtrl, (void *)buf);
+                    break;
+                }
+            }
         }
     }
 }
+
 /************************************************************************************
 
    Runs MP3 demo code
