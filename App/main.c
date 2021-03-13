@@ -23,7 +23,7 @@ Revision History:
 void StartupTask(void* pdata);
 
 // Allocate a stack for the startup task
-static OS_STK StartupStk[APP_CFG_TASK_START_STK_SIZE];
+static OS_STK StartupStk[START_TASK_STK_SIZE];
 
 // Allocate the print buffer
 PRINT_DEFINEBUFFER();
@@ -69,7 +69,7 @@ INT8U err;
     err = OSTaskCreate(
         StartupTask,
         (void*)0,
-        &StartupStk[APP_CFG_TASK_START_STK_SIZE-1],
+        &StartupStk[START_TASK_STK_SIZE-1],
         APP_TASK_START_PRIO);
 
     if (err != OS_ERR_NONE) {

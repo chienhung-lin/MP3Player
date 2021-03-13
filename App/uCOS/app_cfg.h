@@ -56,10 +56,12 @@
 
 //task priorities
 #define APP_TASK_START_PRIO                 4
-#define MP3PLAY_TASKK_PRIO                  5
-#define TOUCH_TASKK_PRIO                    6
-#define DISPLAY_TASK_PRIO                   7
-#define  OS_TASK_TMR_PRIO                (OS_LOWEST_PRIO - 2u)
+#define MP3_DRIVER_TASK_PRIO                7
+#define DISPLAY_TASK_PRIO                   9
+#define MP3PLAY_TASK_PRIO                   11
+// #define EVENT_TASK_PRIO                     13
+#define TOUCH_TASKK_PRIO                    15
+#define  OS_TASK_TMR_PRIO                   (OS_LOWEST_PRIO - 2u)
 
 
 /*
@@ -69,11 +71,11 @@
 *********************************************************************************************************
 */
 
-#define  APP_CFG_TASK_START_STK_SIZE            256u
-#define  APP_CFG_TASK_EQ_STK_SIZE               512u
-#define  APP_CFG_TASK_OBJ_STK_SIZE              256u
-#define  APP_CFG_TASK_512_STK_SIZE              512u
-
+#define  START_TASK_STK_SIZE                    512u
+#define  MP3_DRIVER_TASK_STK_SIZE               512u
+#define  DISPLAY_TASK_STK_SIZE                  512u
+#define  MP3PLAY_TASK_STK_SIZE                  512u
+#define  TOUCH_TASK_STK_SIZE                    512u
 
 
 #endif

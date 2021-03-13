@@ -38,7 +38,19 @@ long MapTouchToScreen(long x, long in_min, long in_max, long out_min, long out_m
 
 //#include "train_crossing.h"
 
-#define BUFSIZE 256
+#define BUFSIZE 128
+
+/*******************************************************************************
+
+    Display Task Command
+
+*******************************************************************************/
+
+typedef enum display_tk_cmd_type {
+    DISPLAY_TK_NONE = 0,
+    DISPLAY_TK_CLICK,
+    DISPLAY_TK_UI_CB
+} display_tk_cmd_t;
 
 /*******************************************************************************
 
@@ -62,6 +74,53 @@ typedef enum mp3_dr_cmd_type {
     MP3_DR_SOFT_RESET
 } mp3_dr_cmd_t;
 
+/*******************************************************************************
+
+    UI structure
+
+*******************************************************************************/
+
+typedef void (*ui_event_cb_t)(Adafruit_ILI9341 *, void *);
+
+typedef struct ui_button_info_type {
+    uint16_t x;
+    uint16_t y;
+    uint16_t w;
+    uint16_t h;
+    uint16_t outline;
+    uint16_t fill;
+    uint16_t textcolor;
+    char label[16];
+    uint8_t textsize;
+    char dummy[1]; // for aliagn
+} ui_button_info_t;
+
+typedef struct ui_button_type {
+    Adafruit_GFX_Button *button;
+    ui_button_info_t button_info;
+    ui_event_cb_t event_callback;
+    mp3_tk_cmd_t mp3_tk_cmd;
+} ui_button_t;
+
+/*******************************************************************************
+
+    Display command structure
+
+*******************************************************************************/
+
+typedef struct point_type {
+    uint32_t x;
+    uint32_t y;
+} point_t;
+
+typedef struct display_tk_cmd_msg_type {
+    display_tk_cmd_t command;
+    union {
+        point_t point;
+        ui_event_cb_t event_callback;
+    };
+} display_tk_cmd_msg_t;
+
 /************************************************************************************
 
    Allocate the stacks for each task.
@@ -69,14 +128,17 @@ typedef enum mp3_dr_cmd_type {
 
 ************************************************************************************/
 
-static OS_STK   TouchTaskStk[APP_CFG_TASK_START_STK_SIZE];
-static OS_STK   Mp3DemoTaskStk[APP_CFG_TASK_512_STK_SIZE];
-static OS_STK   LcdDisplayTaskStk[APP_CFG_TASK_START_STK_SIZE];
+
+static OS_STK   Mp3DriverTaskStk[MP3_DRIVER_TASK_STK_SIZE];
+static OS_STK   LcdDisplayTaskStk[DISPLAY_TASK_STK_SIZE];
+static OS_STK   Mp3PlayerTaskStk[MP3PLAY_TASK_STK_SIZE];
+static OS_STK   TouchTaskStk[TOUCH_TASK_STK_SIZE];
 
 // Task prototypes
-void TouchTask(void* pdata);
-void Mp3DemoTask(void* pdata);
+void Mp3DriverTask(void* pdata);
 void LcdDisplayTask(void* pdata);
+void Mp3PlayerTask(void* pdata);
+void TouchTask(void* pdata);
 
 // Useful functions
 void PrintToLcdWithBuf(char *buf, int size, char *format, ...);
@@ -86,19 +148,32 @@ BOOLEAN nextSong = OS_FALSE;
 
 /*******************************************************************************
 
-OSEvent
+    OS Event
 
 ********************************************************************************/
            
 static OS_EVENT *mp3_tk_cmd_mb = NULL;
-static mp3_tk_cmd_t mp3_task_cmd_msg;
+static OS_EVENT *display_tk_cmd_mb = NULL;
+
+/*******************************************************************************
+
+    OS Memory
+
+********************************************************************************/
+
+#define CMD_MSG_SIZES 5
+
+static OS_MEM *cmd_msg_mem = NULL;
+static display_tk_cmd_msg_t cmd_msg_tbl[CMD_MSG_SIZES];
 
 /*******************************************************************************
 
 UI Objects
 
 *******************************************************************************/
-
+// UI_OBJS macro just used for unfolding in IDE...
+#define UI_OBJS
+#ifdef UI_OBJS
 /* Button Geomertic Infomation */
 #define PLAY_X (10U)
 #define PLAY_Y (170U)
@@ -137,13 +212,10 @@ UI Objects
 
 #define UI_BUTTON_SIZES (sizeof(button_array)/sizeof(button_array[0]))
 
-typedef void (*bu_e_cb_t)(Adafruit_ILI9341 *, void *);
 
-typedef struct ui_button_type {
-    Adafruit_GFX_Button *button;
-    bu_e_cb_t bu_event_cb;
-    mp3_tk_cmd_t mp3_tk_cmd;    
-} ui_button_t;
+
+#define UI_BUTTON_INFO_INIT(x, y, w, h, outline, fill, textcolor, label, textsize) \
+    { x, y, w, h, outline, fill, textcolor, label, textsize }
 
 static Adafruit_GFX_Button play_bu;
 static Adafruit_GFX_Button pause_bu;
@@ -163,13 +235,62 @@ static void next_bu_e_cb(Adafruit_ILI9341 *, void *);
 
 static ui_button_t button_array[] =
 {
-    { &play_bu, play_bu_e_cb, MP3_TK_PLAY }, 
-    { &pause_bu, pause_bu_e_cb, MP3_TK_PAUSE }, 
-    { &stop_bu, stop_bu_e_cb, MP3_TK_STOP },
-    { &vol_up_bu, vol_up_bu_e_cb, MP3_TK_VOL_UP },
-    { &vol_down_bu, vol_down_bu_e_cb, MP3_TK_VOL_DOWN },
-    { &prev_bu, prev_bu_e_cb, MP3_TK_NONE },
-    { &next_bu, next_bu_e_cb, MP3_TK_NONE }
+    {
+        &play_bu, 
+        UI_BUTTON_INFO_INIT(PLAY_X, PLAY_Y, PLAY_W, PLAY_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "Play", 2),
+        play_bu_e_cb, 
+        MP3_TK_PLAY 
+    }, 
+    { 
+        &pause_bu, 
+        UI_BUTTON_INFO_INIT(PAUSE_X, PAUSE_Y, PAUSE_W, PAUSE_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "Pause", 2),
+        pause_bu_e_cb, 
+        MP3_TK_PAUSE 
+    }, 
+    { 
+        &stop_bu,
+        UI_BUTTON_INFO_INIT(STOP_X, STOP_Y, STOP_W, STOP_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "Stop", 2),
+        stop_bu_e_cb, 
+        MP3_TK_STOP
+    },
+    {
+        &vol_up_bu,
+        UI_BUTTON_INFO_INIT(VOL_UP_X, VOL_UP_Y, VOL_UP_W, VOL_UP_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "+", 2),
+        vol_up_bu_e_cb,
+        MP3_TK_VOL_UP
+    },
+    {
+        &vol_down_bu, 
+        UI_BUTTON_INFO_INIT(VOL_DW_X, VOL_DW_Y, VOL_DW_W, VOL_DW_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "-", 2),        
+        vol_down_bu_e_cb, 
+        MP3_TK_VOL_DOWN 
+    },
+    { 
+        &prev_bu,
+        UI_BUTTON_INFO_INIT(PREV_X, PREV_Y, PREV_W, PREV_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "<", 2),
+        prev_bu_e_cb, 
+        MP3_TK_NONE 
+    },
+    { 
+        &next_bu,
+        UI_BUTTON_INFO_INIT(NEXT_X, NEXT_Y, NEXT_W, NEXT_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            ">", 2),
+        next_bu_e_cb, 
+        MP3_TK_NONE 
+    }
 };
 
 void play_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
@@ -241,6 +362,7 @@ void next_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
     _gfx->setTextSize(2);
     PrintToLcdWithBuf(buf, BUFSIZE, "NEXT");
 }
+#endif
 
 /************************************************************************************
 
@@ -250,12 +372,13 @@ void next_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
 ************************************************************************************/
 void StartupTask(void* pdata)
 {
-	char buf[BUFSIZE];
+    char buf[BUFSIZE];
 
     PjdfErrCode pjdfErr;
     INT32U length;
     static HANDLE hSD = 0;
     static HANDLE hSPI = 0;
+    uint8_t u8_error;
 
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Begin\n");
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Starting timer tick\n");
@@ -283,17 +406,29 @@ void StartupTask(void* pdata)
     if (!SD.begin(hSD)) {
         PrintWithBuf(buf, PRINTBUFMAX, "Attempt to initialize SD card failed.\n");
     }
+ 
+    // Create uCOS memory partitions
+    PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the event objects\n");
+    
+    cmd_msg_mem = OSMemCreate(
+                      cmd_msg_tbl, CMD_MSG_SIZES, 
+                      sizeof(display_tk_cmd_msg_t), &u8_error);
+    
+    // Create the event objects
+    PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the event objects\n");
     
     // Create mail box
     mp3_tk_cmd_mb = OSMboxCreate((void *)0);
+    display_tk_cmd_mb = OSMboxCreate((void *)0);
     
     // Create the test tasks
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the application tasks\n");
 
     // The maximum number of tasks the application can have is defined by OS_MAX_TASKS in os_cfg.h
-    OSTaskCreate(Mp3DemoTask, (void*)0, &Mp3DemoTaskStk[APP_CFG_TASK_512_STK_SIZE-1], MP3PLAY_TASKK_PRIO);
-    OSTaskCreate(TouchTask, (void*)0, &TouchTaskStk[APP_CFG_TASK_START_STK_SIZE-1], TOUCH_TASKK_PRIO);
-    OSTaskCreate(LcdDisplayTask, (void*)0, &LcdDisplayTaskStk[APP_CFG_TASK_START_STK_SIZE-1], DISPLAY_TASK_PRIO);
+    OSTaskCreate(Mp3DriverTask, (void*)0, &Mp3DriverTaskStk[MP3_DRIVER_TASK_STK_SIZE-1], MP3_DRIVER_TASK_PRIO);
+    OSTaskCreate(LcdDisplayTask, (void*)0, &LcdDisplayTaskStk[DISPLAY_TASK_STK_SIZE-1], DISPLAY_TASK_PRIO);
+    OSTaskCreate(Mp3PlayerTask, (void*)0, &Mp3PlayerTaskStk[MP3PLAY_TASK_STK_SIZE-1], MP3PLAY_TASK_PRIO);
+    OSTaskCreate(TouchTask, (void*)0, &TouchTaskStk[TOUCH_TASK_STK_SIZE-1], TOUCH_TASKK_PRIO);
 
     // Delete ourselves, letting the work be done in the new tasks.
     PrintWithBuf(buf, BUFSIZE, "StartupTask: deleting self\n");
@@ -301,25 +436,24 @@ void StartupTask(void* pdata)
     OSTaskDel(OS_PRIO_SELF);
 }
 
-static void DrawLcdContents()
-{
-    char buf[BUFSIZE];
-    OS_CPU_SR cpu_sr;
-    
-    // allow slow lower pri drawing operation to finish without preemption
-    OS_ENTER_CRITICAL(); 
-    
-    lcdCtrl.fillScreen(ILI9341_BLACK);
-    
-    // Print a message on the LCD
-    lcdCtrl.setCursor(40, 60);
-    lcdCtrl.setTextColor(ILI9341_WHITE);  
-    lcdCtrl.setTextSize(2);
-    PrintToLcdWithBuf(buf, BUFSIZE, "Hello World!");
-
-    OS_EXIT_CRITICAL();
-
-}
+//static void DrawLcdContents()
+//{
+//    char buf[BUFSIZE];
+//    OS_CPU_SR cpu_sr;
+//    
+//    // allow slow lower pri drawing operation to finish without preemption
+//    OS_ENTER_CRITICAL(); 
+//    
+//    lcdCtrl.fillScreen(ILI9341_BLACK);
+//    
+//    // Print a message on the LCD
+//    lcdCtrl.setCursor(40, 60);
+//    lcdCtrl.setTextColor(ILI9341_WHITE);  
+//    lcdCtrl.setTextSize(2);
+//    PrintToLcdWithBuf(buf, BUFSIZE, "Hello World!");
+//
+//    OS_EXIT_CRITICAL();
+//}
 
 static void DrawGrid(Adafruit_ILI9341 *gfx, 
                      uint32_t u32_x, uint32_t u32_y,
@@ -341,16 +475,43 @@ static void DrawGrid(Adafruit_ILI9341 *gfx,
     }
 }
 
+static void DrawButtons(Adafruit_ILI9341 *gfx)
+{
+    uint32_t u32_i;
+    ui_button_info_t *bu_info;
+    Adafruit_GFX_Button *bu;
+    
+    for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {
+        bu = button_array[u32_i].button;
+        bu_info = &button_array[u32_i].button_info;
+        
+        bu->initButton(gfx,
+                       bu_info->x + bu_info->w / 2, bu_info->y + bu_info->h / 2, 
+                       bu_info->w, bu_info->h, 
+                       bu_info->outline, bu_info->fill, bu_info->textcolor, 
+                       bu_info->label, bu_info->textsize);
+    }
+    
+    for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {
+        bu = button_array[u32_i].button;
+        bu->drawButton();
+    } 
+}
+
 /************************************************************************************
 
    Runs Lcd Display code
 
 ************************************************************************************/
+
+#define TIMEOUT_INFINITE 0
+
 void LcdDisplayTask(void* pdata)
 {
     PjdfErrCode pjdfErr;
-    INT8U  device_address, u8_error;
+    uint8_t  u8_error;
     INT32U length;
+    
 
     char buf[BUFSIZE];
     PrintWithBuf(buf, BUFSIZE, "LcdDisplayTask: starting\n");
@@ -380,90 +541,94 @@ void LcdDisplayTask(void* pdata)
     
     lcdCtrl.fillScreen(ILI9341_BLACK);
     
+    // draw x axis and y axis grid
     DrawGrid(&lcdCtrl, 0, 0, ILI9341_TFTWIDTH, ILI9341_TFTHEIGHT,
              20, 20, ILI9341_WHITE);
     
+    // draw a rectangular for song name space
     lcdCtrl.drawRect(10, 10, 220, 80, ILI9341_MAROON);
     
+    // draw a retangular for process bar
     lcdCtrl.drawRect(10, 110, 220, 40, ILI9341_MAROON);
     
-#if 1
-    play_bu.initButton(&lcdCtrl,
-                           PLAY_X + PLAY_W/2, \
-                           PLAY_Y + PLAY_H/2, \
-                           PLAY_W, PLAY_H, \
-                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
-                           "Play", 2);
+    DrawButtons(&lcdCtrl);
     
-    pause_bu.initButton(&lcdCtrl,
-                           PAUSE_X + PAUSE_W/2, \
-                           PAUSE_Y + PAUSE_H/2, \
-                           PAUSE_W, PAUSE_H, \
-                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
-                           "Pause", 2);
+    PrintWithBuf(buf, BUFSIZE, "Display Task waits for Touch task");
     
-    stop_bu.initButton(&lcdCtrl,
-                           STOP_X + STOP_W/2, \
-                           STOP_Y + STOP_H/2, \
-                           STOP_W, STOP_H, \
-                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
-                           "Stop", 2);
-    
-    vol_up_bu.initButton(&lcdCtrl,
-                           VOL_UP_X + VOL_UP_W/2, \
-                           VOL_UP_Y + VOL_UP_H/2, \
-                           VOL_DW_W, VOL_UP_H, \
-                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
-                           "+", 2);
-    
-    vol_down_bu.initButton(&lcdCtrl,
-                           VOL_DW_X + VOL_DW_W/2, \
-                           VOL_DW_Y + VOL_DW_H/2, \
-                           VOL_DW_W, VOL_DW_H, \
-                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
-                           "-", 2);
-
-    prev_bu.initButton(&lcdCtrl,
-                           PREV_X + PREV_W/2, \
-                           PREV_Y + PREV_H/2, \
-                           PREV_W, PREV_H, \
-                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
-                           "<", 2);
-    
-    next_bu.initButton(&lcdCtrl,
-                           NEXT_X + NEXT_W/2, \
-                           NEXT_Y + NEXT_H/2, \
-                           NEXT_W, NEXT_H, \
-                           ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE, \
-                           ">", 2);
-
-    play_bu.drawButton();
-    pause_bu.drawButton();
-    stop_bu.drawButton();
-    vol_up_bu.drawButton();
-    vol_down_bu.drawButton();
-    prev_bu.drawButton();
-    next_bu.drawButton();
-#endif
-    
-    u8_error = OSTaskResume(TOUCH_TASKK_PRIO);
-    if (u8_error != OS_ERR_NONE) {
-        PrintWithBuf(buf, BUFSIZE, "Display Task resume error: %d\n", u8_error);
-    }
     u8_error = OSTaskSuspend(OS_PRIO_SELF);
-    while (1) {
-//        swtich () {
-//        case ;
-//        case ;
-//        default;
-//        }
+    
+    if (u8_error != OS_ERR_NONE) {
+        PrintWithBuf(buf, BUFSIZE, "Error: Display Task returned from suspend %d\n", u8_error);
     }
     
+    display_tk_cmd_msg_t *cmd_msg_p;
+    display_tk_cmd_msg_t cmd_msg;
+    uint32_t u32_i;
+    
+    ui_button_t *bu;
+    point_t *point_p;
+    
+    while (1) {
+        
+        // display task is event trigger task
+        cmd_msg_p = (display_tk_cmd_msg_t *)OSMboxPend(display_tk_cmd_mb, TIMEOUT_INFINITE, &u8_error);
+        
+        // copy msg
+        cmd_msg = *cmd_msg_p;
+        
+        // release resource to memory pool(uCOS memory heap)
+        u8_error = OSMemPut(cmd_msg_mem, cmd_msg_p);
+        cmd_msg_p = (display_tk_cmd_msg_t *)0;
+        
+        if (u8_error) {
+        }
+        
+        switch (cmd_msg.command) {
+        case DISPLAY_TK_CLICK:
+            point_p = &cmd_msg.point;
+            
+            // find first match button
+            for (u32_i = 0;u32_i < UI_BUTTON_SIZES;++u32_i) {
+                bu = &button_array[u32_i];
+                if (bu->button->contains(point_p->x, point_p->y)) {
+                    
+                    // This is ui event
+                    if (bu->event_callback)
+                        bu->event_callback(&lcdCtrl, (void *)buf);
+                    
+                    // TODO: for sending a copy, use uCOS memory heap
+                    u8_error = OSMboxPost(mp3_tk_cmd_mb, &bu->mp3_tk_cmd);
+                    
+                    break;
+                }
+            }
+            break;
+        case DISPLAY_TK_UI_CB:
+            break;
+        case DISPLAY_TK_NONE:
+            break;
+        default:
+            ;
+        }
+        
+        // no delay here because display task is event driven task
+    }
+}
+
+/*******************************************************************************
+
+    UI Event Task for external resource or tasks
+
+*******************************************************************************/
+
+void Mp3PlayerTask(void* pdata)
+{
+    ;
 }
 
 /************************************************************************************
 
-   Runs Touch code
+   Touch Task
 
 ************************************************************************************/
 void TouchTask(void* pdata)
@@ -471,8 +636,6 @@ void TouchTask(void* pdata)
     PjdfErrCode pjdfErr;
     INT8U  device_address, u8_error;
     INT32U length;
-    uint32_t u32_i;
-    ui_button_t *bu = NULL;
 
     char buf[BUFSIZE];
     PrintWithBuf(buf, BUFSIZE, "TouchTask: starting\n");
@@ -501,41 +664,49 @@ void TouchTask(void* pdata)
         while (1);
     }
     
-    // wait for lcd initialize finished
-    PrintWithBuf(buf, BUFSIZE, "Wait for LcdDisplay task...\n");
-    
-    u8_error = OSTaskSuspend(OS_PRIO_SELF);
-    
+    u8_error = OSTaskResume(DISPLAY_TASK_PRIO);
+        
     if (u8_error != OS_ERR_NONE) {
-        PrintWithBuf(buf, BUFSIZE, "Touch Task exit suspend error: %d\n", u8_error);
+        PrintWithBuf(buf, BUFSIZE, "Touch Task resume display task error: %d\n", u8_error);
     }
     
+    display_tk_cmd_msg_t *cmd_msg_p;
 
     while (1) { 
         boolean touched;
         
         touched = touchCtrl.touched();
         
-        if (! touched) {
-            OSTimeDly(5);
-        } else {
+        if (touched) {
             TS_Point touch_p, convert_p = TS_Point();
             
             touch_p = touchCtrl.getPoint();
             convert_p.x = MapTouchToScreen(touch_p.x, 0, ILI9341_TFTWIDTH, ILI9341_TFTWIDTH, 0);
             convert_p.y = MapTouchToScreen(touch_p.y, 0, ILI9341_TFTHEIGHT, ILI9341_TFTHEIGHT, 0);
             
-            for (u32_i = 0;u32_i < UI_BUTTON_SIZES;++u32_i) {
-                bu = &button_array[u32_i];
-                if (bu->button->contains(convert_p.x, convert_p.y)) {
-                    bu->bu_event_cb(&lcdCtrl, (void *)buf);
-                    
-                    u8_error = OSMboxPost(mp3_tk_cmd_mb, &bu->mp3_tk_cmd);
-                    
-                    break;
+            // get memory block
+            cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+            
+            if (!cmd_msg_p) {
+                PrintWithBuf(buf, BUFSIZE, "Touch Task: cmd mem allocate fails: %d\n", u8_error);
+            }
+            
+            // if get memory, send click event to display task
+            if (cmd_msg_p) {
+            
+                cmd_msg_p->command = DISPLAY_TK_CLICK;
+                cmd_msg_p->point.x = convert_p.x;
+                cmd_msg_p->point.y = convert_p.y;
+            
+                u8_error = OSMboxPost(display_tk_cmd_mb, cmd_msg_p);
+                
+                if (u8_error != OS_ERR_NONE) {
+                    PrintWithBuf(buf, BUFSIZE, "Touch Task: cmd post fails: %d\n", u8_error);
                 }
             }
         }
+        // always delay for controling touch event frequency
+        OSTimeDly(10);
     }
 }
 
@@ -549,7 +720,7 @@ void TouchTask(void* pdata)
 
 static uint8_t u8_mp3_buff[MP3_BUF_SIZE];
 
-void Mp3DemoTask(void* pdata)
+void Mp3DriverTask(void* pdata)
 {
     PjdfErrCode pjdfErr;
     INT32U length;
@@ -557,7 +728,7 @@ void Mp3DemoTask(void* pdata)
     File dir, file;
     
     char buf[BUFSIZE];
-    PrintWithBuf(buf, BUFSIZE, "Mp3DemoTask: starting\n");
+    PrintWithBuf(buf, BUFSIZE, "Mp3DriverTask: starting\n");
 
     PrintWithBuf(buf, BUFSIZE, "Opening MP3 driver: %s\n", PJDF_DEVICE_ID_MP3_VS1053);
     // Open handle to the MP3 decoder driver
@@ -578,8 +749,8 @@ void Mp3DemoTask(void* pdata)
     // Send initialization data to the MP3 decoder and run a test
     PrintWithBuf(buf, BUFSIZE, "Starting MP3 Task\n");
 
-    int count = 0;
-    int play_song_count = 0;
+    //int count = 0;
+    //int play_song_count = 0;
     
     dir = SD.open("/", O_READ);
     
@@ -620,10 +791,6 @@ void Mp3DemoTask(void* pdata)
 //    if (file) {
 //        PrintWithBuf(buf, BUFSIZE, "Error: file should have been closed\n");
 //    }
-    
-#if OS_CRITICAL_METHOD == 3u                              /* Allocate storage for CPU status register  */
-    OS_CPU_SR  cpu_sr = 0u;
-#endif
     
     char filename[13] = "LEVEL_5.MP3";
     uint32_t isplay = 0;
