@@ -40,6 +40,28 @@ long MapTouchToScreen(long x, long in_min, long in_max, long out_min, long out_m
 
 #define BUFSIZE 256
 
+/*******************************************************************************
+
+    MP3 Task Command
+
+*******************************************************************************/
+
+typedef enum mp3_tk_cmd_type {
+    MP3_TK_NONE = 0,
+    MP3_TK_PLAY,
+    MP3_TK_PAUSE,
+    MP3_TK_STOP,
+    MP3_TK_VOL_UP,
+    MP3_TK_VOL_DOWN
+} mp3_tk_cmd_t;
+
+typedef enum mp3_dr_cmd_type {
+    MP3_DR_NONE = 0,
+    MP3_DR_PLAY_CHUNK,
+    MP3_DR_VOL_CHANGE,
+    MP3_DR_SOFT_RESET
+} mp3_dr_cmd_t;
+
 /************************************************************************************
 
    Allocate the stacks for each task.
@@ -48,7 +70,7 @@ long MapTouchToScreen(long x, long in_min, long in_max, long out_min, long out_m
 ************************************************************************************/
 
 static OS_STK   TouchTaskStk[APP_CFG_TASK_START_STK_SIZE];
-static OS_STK   Mp3DemoTaskStk[APP_CFG_TASK_START_STK_SIZE];
+static OS_STK   Mp3DemoTaskStk[APP_CFG_TASK_512_STK_SIZE];
 static OS_STK   LcdDisplayTaskStk[APP_CFG_TASK_START_STK_SIZE];
 
 // Task prototypes
@@ -61,6 +83,15 @@ void PrintToLcdWithBuf(char *buf, int size, char *format, ...);
 
 // Globals
 BOOLEAN nextSong = OS_FALSE;
+
+/*******************************************************************************
+
+OSEvent
+
+********************************************************************************/
+           
+static OS_EVENT *mp3_tk_cmd_mb = NULL;
+static mp3_tk_cmd_t mp3_task_cmd_msg;
 
 /*******************************************************************************
 
@@ -111,6 +142,7 @@ typedef void (*bu_e_cb_t)(Adafruit_ILI9341 *, void *);
 typedef struct ui_button_type {
     Adafruit_GFX_Button *button;
     bu_e_cb_t bu_event_cb;
+    mp3_tk_cmd_t mp3_tk_cmd;    
 } ui_button_t;
 
 static Adafruit_GFX_Button play_bu;
@@ -131,13 +163,13 @@ static void next_bu_e_cb(Adafruit_ILI9341 *, void *);
 
 static ui_button_t button_array[] =
 {
-    { &play_bu, play_bu_e_cb }, 
-    { &pause_bu, pause_bu_e_cb }, 
-    { &stop_bu, stop_bu_e_cb },
-    { &vol_up_bu, vol_up_bu_e_cb },
-    { &vol_down_bu, vol_down_bu_e_cb },
-    { &prev_bu, prev_bu_e_cb },
-    { &next_bu, next_bu_e_cb }
+    { &play_bu, play_bu_e_cb, MP3_TK_PLAY }, 
+    { &pause_bu, pause_bu_e_cb, MP3_TK_PAUSE }, 
+    { &stop_bu, stop_bu_e_cb, MP3_TK_STOP },
+    { &vol_up_bu, vol_up_bu_e_cb, MP3_TK_VOL_UP },
+    { &vol_down_bu, vol_down_bu_e_cb, MP3_TK_VOL_DOWN },
+    { &prev_bu, prev_bu_e_cb, MP3_TK_NONE },
+    { &next_bu, next_bu_e_cb, MP3_TK_NONE }
 };
 
 void play_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
@@ -252,11 +284,14 @@ void StartupTask(void* pdata)
         PrintWithBuf(buf, PRINTBUFMAX, "Attempt to initialize SD card failed.\n");
     }
     
+    // Create mail box
+    mp3_tk_cmd_mb = OSMboxCreate((void *)0);
+    
     // Create the test tasks
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the application tasks\n");
 
     // The maximum number of tasks the application can have is defined by OS_MAX_TASKS in os_cfg.h
-    OSTaskCreate(Mp3DemoTask, (void*)0, &Mp3DemoTaskStk[APP_CFG_TASK_START_STK_SIZE-1], MP3PLAY_TASKK_PRIO);
+    OSTaskCreate(Mp3DemoTask, (void*)0, &Mp3DemoTaskStk[APP_CFG_TASK_512_STK_SIZE-1], MP3PLAY_TASKK_PRIO);
     OSTaskCreate(TouchTask, (void*)0, &TouchTaskStk[APP_CFG_TASK_START_STK_SIZE-1], TOUCH_TASKK_PRIO);
     OSTaskCreate(LcdDisplayTask, (void*)0, &LcdDisplayTaskStk[APP_CFG_TASK_START_STK_SIZE-1], DISPLAY_TASK_PRIO);
 
@@ -411,7 +446,7 @@ void LcdDisplayTask(void* pdata)
     next_bu.drawButton();
 #endif
     
-    u8_error = OSTaskResume(DISPLAY_TASK_PRIO);
+    u8_error = OSTaskResume(TOUCH_TASKK_PRIO);
     if (u8_error != OS_ERR_NONE) {
         PrintWithBuf(buf, BUFSIZE, "Display Task resume error: %d\n", u8_error);
     }
@@ -468,7 +503,9 @@ void TouchTask(void* pdata)
     
     // wait for lcd initialize finished
     PrintWithBuf(buf, BUFSIZE, "Wait for LcdDisplay task...\n");
+    
     u8_error = OSTaskSuspend(OS_PRIO_SELF);
+    
     if (u8_error != OS_ERR_NONE) {
         PrintWithBuf(buf, BUFSIZE, "Touch Task exit suspend error: %d\n", u8_error);
     }
@@ -492,6 +529,9 @@ void TouchTask(void* pdata)
                 bu = &button_array[u32_i];
                 if (bu->button->contains(convert_p.x, convert_p.y)) {
                     bu->bu_event_cb(&lcdCtrl, (void *)buf);
+                    
+                    u8_error = OSMboxPost(mp3_tk_cmd_mb, &bu->mp3_tk_cmd);
+                    
                     break;
                 }
             }
@@ -504,10 +544,17 @@ void TouchTask(void* pdata)
    Runs MP3 demo code
 
 ************************************************************************************/
+
+#define MP3_BUF_SIZE 2048
+
+static uint8_t u8_mp3_buff[MP3_BUF_SIZE];
+
 void Mp3DemoTask(void* pdata)
 {
     PjdfErrCode pjdfErr;
     INT32U length;
+    uint32_t nbytes;
+    File dir, file;
     
     char buf[BUFSIZE];
     PrintWithBuf(buf, BUFSIZE, "Mp3DemoTask: starting\n");
@@ -529,18 +576,164 @@ void Mp3DemoTask(void* pdata)
     if(PJDF_IS_ERROR(pjdfErr)) while(1);
 
     // Send initialization data to the MP3 decoder and run a test
-    PrintWithBuf(buf, BUFSIZE, "Starting MP3 device test\n");
+    PrintWithBuf(buf, BUFSIZE, "Starting MP3 Task\n");
+
+    int count = 0;
+    int play_song_count = 0;
+    
+    dir = SD.open("/", O_READ);
+    
+    PrintWithBuf(buf, BUFSIZE, "Open root directory: %s\n", dir.name());
+    
+    if (!dir) {
+        PrintWithBuf(buf, BUFSIZE, "Error: could not open SD card file '%s'\n", "/");
+    }
+    
+    while ( (file = dir.openNextFile(O_RDONLY)) ) {
+        PrintWithBuf(buf, BUFSIZE, "Print file: %s\n", file.name());
+        file.close();
+    }
+    dir.close();
     
     Mp3Init(hMp3);
-    int count = 0;
+    Mp3StreamInit(hMp3);
+    
+//    dir = SD.open("/", O_READ);
+//    file = dir.openNextFile(O_RDONLY);
+//    file.close();
+//         file = dir.openNextFile(O_RDONLY);
+//        if (!file) {
+//            file.close();
+//            dir.close();
+//            dir = SD.open("/", O_READ);
+//            file = dir.openNextFile(O_RDONLY);
+//            file.close();
+//            file = dir.openNextFile(O_RDONLY);
+//        }  
+    
+    // Test file close
+//    file = SD.open("TRAIN001.mp3", O_READ);
+//    if (file) {
+//        PrintWithBuf(buf, BUFSIZE, "Print file: %s\n", file.name());
+//    }
+//    file.close();
+//    if (file) {
+//        PrintWithBuf(buf, BUFSIZE, "Error: file should have been closed\n");
+//    }
+    
+#if OS_CRITICAL_METHOD == 3u                              /* Allocate storage for CPU status register  */
+    OS_CPU_SR  cpu_sr = 0u;
+#endif
+    
+    char filename[13] = "LEVEL_5.MP3";
+    uint32_t isplay = 0;
+    uint8_t mp3_volumn = 0x10;
+    mp3_tk_cmd_t *mp3_tk_command_p = NULL;
+    mp3_tk_cmd_t mp3_tk_command = MP3_TK_NONE;
+    mp3_dr_cmd_t mp3_dr_command = MP3_DR_NONE;
+    nbytes = MP3_BUF_SIZE;
     
     while (1)
     {
-        OSTimeDly(500);
-        PrintWithBuf(buf, BUFSIZE, "Begin streaming sound file  count=%d\n", ++count);
-        // Mp3Stream(hMp3, (INT8U*)Train_Crossing, sizeof(Train_Crossing)); 
-        Mp3StreamSDFile(hMp3, "TRAIN001.mp3");
-        PrintWithBuf(buf, BUFSIZE, "Done streaming sound file  count=%d\n", count);
+        mp3_tk_command_p = (mp3_tk_cmd_t *)OSMboxAccept(mp3_tk_cmd_mb);
+        
+        mp3_tk_command = MP3_TK_NONE;
+        mp3_dr_command = MP3_DR_NONE;
+        
+        // copy command from mailbox
+        // even though no task will modify mailbox message, copy it to avoid sharing data
+        if (mp3_tk_command_p) {
+            mp3_tk_command = *mp3_tk_command_p;
+        }
+         
+        switch (mp3_tk_command) {
+        case MP3_TK_PLAY:
+            if (!isplay) {
+                if (!file) {
+                    file = SD.open(filename, O_READ);
+                    nbytes = MP3_BUF_SIZE;
+                }
+                isplay = 1;
+            }
+            break;
+        case MP3_TK_PAUSE:
+            if (isplay) {
+                isplay = 0;
+            }
+            break;
+        case MP3_TK_STOP:
+            if (file) {
+                file.close();
+                // to clear rest data in vs1053
+                mp3_dr_command = MP3_DR_SOFT_RESET;
+            }
+            isplay = 0;
+            break;
+        case MP3_TK_VOL_UP:
+            if (mp3_volumn != MP3_VOL_MAX) {
+                --mp3_volumn;
+                mp3_dr_command = MP3_DR_VOL_CHANGE;
+            }
+            break;
+        case MP3_TK_VOL_DOWN:
+            if (mp3_volumn != MP3_VOL_MIN) {
+                ++mp3_volumn;
+                mp3_dr_command = MP3_DR_VOL_CHANGE;
+            }
+            break;
+        case MP3_TK_NONE:
+            break;
+        default:
+            ;
+        }
+
+        if (mp3_dr_command == MP3_DR_NONE && isplay) {
+            if (file.available()) {
+                nbytes = file.read(u8_mp3_buff, nbytes);
+                mp3_dr_command = MP3_DR_PLAY_CHUNK;
+            } else {
+                file.close();
+                isplay = 0;
+            }
+        }
+        
+        switch (mp3_dr_command) {
+        case MP3_DR_PLAY_CHUNK:
+            Mp3Stream(hMp3, u8_mp3_buff, nbytes);
+            break;
+        case MP3_DR_VOL_CHANGE:
+            Mp3SetVol(hMp3, mp3_volumn, mp3_volumn);
+            break;
+        case MP3_DR_SOFT_RESET:
+            Mp3SoftReset(hMp3);
+            break;
+        case MP3_DR_NONE:
+            break;
+        default:
+            ;
+        }
+        OSTimeDly(30);
+        
+//        file = SD.open(filename, O_READ);
+//        PrintWithBuf(buf, BUFSIZE, "Play file: %d %s\n", count++, file.name());
+//        play_song_count = 0;
+//        while (file.available() && play_song_count++ < 1000) {
+//        
+//            
+//            nbytes = MP3_BUF_SIZE;
+//            
+//            nbytes = file.read(u8_mp3_buff, nbytes);
+//
+//            Mp3Stream(hMp3, u8_mp3_buff, nbytes);
+//            
+//        }
+//        file.close();
+        
+//        OSTimeDly(500);
+//        PrintWithBuf(buf, BUFSIZE, "Begin streaming sound file  count=%d\n", ++count);
+//        // Mp3Stream(hMp3, (INT8U*)Train_Crossing, sizeof(Train_Crossing)); 
+//        Mp3StreamSDFile(hMp3, "TRAIN001.mp3");
+//        PrintWithBuf(buf, BUFSIZE, "Done streaming sound file  count=%d\n", count);
     }
 }
 

@@ -120,8 +120,6 @@ static PjdfErrCode WriteMP3(DriverInternal *pDriver, void* pBuffer, INT32U* pCou
         if (retval != PJDF_ERR_NONE) while(1);
     }
         
-        
-    
     // adjust SPI transmission rate
     retval = Ioctl(hSPI, PJDF_CTRL_SPI_SET_DATARATE, (void*)&Mp3SpiDataRate, (INT32U*)&SizeofMp3SpiDataRate); 
     if (retval != PJDF_ERR_NONE) while(1);

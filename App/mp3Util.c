@@ -18,7 +18,80 @@ static File dataFile;
 
 extern BOOLEAN nextSong;
 
-static void Mp3StreamInit(HANDLE hMp3)
+static inline uint32_t Mp3WriteCommandBuf(uint8_t *cmd, uint8_t reg, uint16_t value)
+{
+    cmd[0] = WRITE_OPCODE;
+    cmd[1] = reg;
+    cmd[2] = value >> 8;
+    cmd[3] = value & 0x00FF;
+    return 4;
+}
+
+void Mp3HardReset(HANDLE hMp3)
+{
+    // TODE: pull low xRST pin
+    (void *)hMp3;
+}
+
+void Mp3SoftReset(HANDLE hMp3)
+{
+    uint8_t u8_command[4];
+    uint16_t u16_mode_reg;
+    uint32_t u32_length;
+    
+    /* TODO: read mode register first and modfiy only softreset bit in mode register
+     */
+    /* Note: sdinew is set as default after reset, it's ok not to set it here */
+    u16_mode_reg = SM_RESET | SM_SDINEW;
+    
+    u32_length = Mp3WriteCommandBuf(u8_command, MODE_REG, u16_mode_reg);
+    
+    // Place MP3 driver in command mode (subsequent writes will be sent to the decoder's command interface)
+    Ioctl(hMp3, PJDF_CTRL_MP3_SELECT_COMMAND, 0, 0);
+    
+    Write(hMp3, (void*)u8_command, &u32_length);
+}
+
+/* each increment or decreament equal 0.5 dB */
+void Mp3SetVol(HANDLE hMp3, uint8_t u8_vol_left, uint8_t u8_vol_right)
+{
+    uint8_t u8_command[4];
+    uint16_t u16_vol_reg;
+    uint32_t u32_length;
+    
+    // If vol value is 0xFFFF, chip will enter powerdown
+    if (u8_vol_left == 0xFF || u8_vol_right == 0xFF) {
+        return;
+    }
+    
+    u16_vol_reg = u8_vol_left << 8 | u8_vol_right;
+    
+    u32_length = Mp3WriteCommandBuf(u8_command, VOL_REG, u16_vol_reg);
+    
+    // Place MP3 driver in command mode (subsequent writes will be sent to the decoder's command interface)
+    Ioctl(hMp3, PJDF_CTRL_MP3_SELECT_COMMAND, 0, 0);
+    
+    Write(hMp3, (void*)u8_command, &u32_length);
+}
+
+void Mp3SetClockFreq(HANDLE hMp3, uint8_t u8_multi, uint8_t u8_add)
+{
+    uint8_t u8_command[4];
+    uint16_t u16_clockf_reg;
+    uint32_t u32_length;
+    
+    u16_clockf_reg = CLKF_MULTI(u8_multi) | CLKF_ADD(u8_add) | CLKF_FREQ(FREQ_NO_CHANGE);
+    
+    u32_length = Mp3WriteCommandBuf(u8_command, CLOCKF_REG, u16_clockf_reg);
+    
+    // Place MP3 driver in command mode (subsequent writes will be sent to the decoder's command interface)
+    Ioctl(hMp3, PJDF_CTRL_MP3_SELECT_COMMAND, 0, 0);
+    
+    // command buff and length are variables in stack, not use for non block like intterupt or dma
+    Write(hMp3, (void*)u8_command, &u32_length);
+}
+
+void Mp3StreamInit(HANDLE hMp3)
 {
     INT32U length;
     
@@ -101,7 +174,9 @@ void Mp3Stream(HANDLE hMp3, INT8U *pBuf, INT32U bufLen)
     INT32U chunkLen;
     BOOLEAN done = OS_FALSE;
         
-    Mp3StreamInit(hMp3);
+    //Mp3StreamInit(hMp3);
+    
+    Ioctl(hMp3, PJDF_CTRL_MP3_SELECT_DATA, 0, 0);
     
     chunkLen = MP3_DECODER_BUF_SIZE;
 
@@ -120,11 +195,10 @@ void Mp3Stream(HANDLE hMp3, INT8U *pBuf, INT32U bufLen)
         iBufPos += chunkLen;
     }
     
-    Ioctl(hMp3, PJDF_CTRL_MP3_SELECT_COMMAND, 0, 0);
-    length = BspMp3SoftResetLen;
-    Write(hMp3, (void*)BspMp3SoftReset, &length);
+    //Ioctl(hMp3, PJDF_CTRL_MP3_SELECT_COMMAND, 0, 0);
+    //length = BspMp3SoftResetLen;
+    //Write(hMp3, (void*)BspMp3SoftReset, &length);
 }
-
 
 // Mp3Init
 // Send commands to the MP3 device to initialize it.
