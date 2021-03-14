@@ -47,6 +47,7 @@ public:
 
   boolean isDirectory(void);
   File openNextFile(uint8_t mode = O_RDONLY);
+  File openPrevFile(uint8_t mode = O_RDONLY);
   void rewindDirectory(void);
   
   //using Print::write;

@@ -609,6 +609,41 @@ File File::openNextFile(uint8_t mode) {
   return File();
 }
 
+/* Edit by Chien 3/13/2021 */
+File File::openPrevFile(uint8_t mode) {
+  uint32_t curPosition;
+  File tmpt_file;
+  
+  // check if _file is directory or not
+  if (_file->isDir()) {
+    
+    // get current position
+    curPosition = _file->curPosition();
+    
+    // current postiont is 0 or not align to direcnty entry size
+    if (curPosition & (sizeof(dir_t) - 1)) {
+      return File();
+    }
+    
+    while (curPosition > (sizeof(dir_t) << 1)) {
+        curPosition -= sizeof(dir_t);
+        _file->seekSet(curPosition);
+        
+        tmpt_file = this->openNextFile(mode);
+        
+        if (tmpt_file) {
+            break;
+        }
+    }
+    // go back the previous directory entry
+    // Note: it is NOT efficient becuase it may lead to search from the first clustor
+    _file->seekSet(curPosition);
+
+    return tmpt_file;
+  }
+  return File();
+}
+
 void File::rewindDirectory(void) {  
   if (isDirectory())
     _file->rewind();
