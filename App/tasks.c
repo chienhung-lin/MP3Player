@@ -76,6 +76,13 @@ typedef enum mp3_dr_cmd_type {
     MP3_DR_SOFT_RESET
 } mp3_dr_cmd_t;
 
+typedef enum ui_type_type {
+    UI_NONE = 0,
+    UI_TEXTBOX,
+    UI_BUTTON,
+    UI_PROBAR
+} ui_type_t;
+
 /*******************************************************************************
 
     UI structure
@@ -120,16 +127,17 @@ typedef struct ui_textbox_info_type {
 } ui_textbox_info_t;
 
 typedef struct ui_button_type {
+    ui_type_t ui_type;
     Adafruit_GFX_Button *button;
     ui_button_info_t button_info;
-    ui_event_cb_t event_callback;
-    mp3_tk_cmd_t mp3_tk_cmd;
+    ui_event_cb_t draw_callback;;
+    ui_event_cb_t click_callback;
 } ui_button_t;
 
 typedef struct ui_textbox_type {
+    ui_type_t ui_type;
     ui_textbox_info_t text_info;
     ui_event_cb_t draw_callback;
-    ui_event_cb_t click_callback;
 } ui_textbox_t ;
 
 /*******************************************************************************
@@ -138,28 +146,24 @@ typedef struct ui_textbox_type {
 
 *******************************************************************************/
 
-typedef struct cmd_arg_type {
-    uint8_t *print_buf;
-    uint32_t print_buf_len;
+typedef struct ui_callback_arg_type {
+    char *print_buf;
+    uint32_t len;
+    void *ui_obj;
     union {
         char buf[16];
         uint32_t u32_value;
     };
-    uint8_t dummy[3];
-} cmd_arg_t;
-
-typedef struct point_type {
-    uint32_t x;
-    uint32_t y;
-} point_t;
+} ui_callback_arg_t;
 
 typedef struct display_tk_cmd_msg_type {
     display_tk_cmd_t command;
+    ui_type_t ui_type;
+    void *ui_obj;
     union {
-        point_t point;
-        ui_event_cb_t event_callback;
+        char buf[16];
+        uint32_t u32_value;
     };
-    cmd_arg_t argu;
 } display_tk_cmd_msg_t;
 
 /*******************************************************************************
@@ -246,7 +250,7 @@ BOOLEAN nextSong = OS_FALSE;
 static OS_EVENT *mp3_tk_cmd_mb = NULL;
 //static OS_EVENT *display_tk_cmd_mb = NULL;
 
-#define DISPLAY_TK_CMD_Q_SIZE 10
+#define DISPLAY_TK_CMD_Q_SIZE 20
 static OS_EVENT *diplay_tk_cmd_queue = NULL;
 static void *display_tk_cmd_q_tbl[DISPLAY_TK_CMD_Q_SIZE];
 
@@ -256,7 +260,7 @@ static void *display_tk_cmd_q_tbl[DISPLAY_TK_CMD_Q_SIZE];
 
 ********************************************************************************/
 
-#define CMD_MSG_SIZES 10
+#define CMD_MSG_SIZES 20
 
 static OS_MEM *cmd_msg_mem = NULL;
 static display_tk_cmd_msg_t cmd_msg_tbl[CMD_MSG_SIZES];
@@ -313,74 +317,74 @@ static Adafruit_GFX_Button vol_down_bu;
 static Adafruit_GFX_Button prev_bu;
 static Adafruit_GFX_Button next_bu;
 
-static void play_bu_e_cb(Adafruit_ILI9341 *, void *);
-static void pause_bu_e_cb(Adafruit_ILI9341 *, void *);
-static void stop_bu_e_cb(Adafruit_ILI9341 *, void *);
-static void vol_up_bu_e_cb(Adafruit_ILI9341 *, void *);
-static void vol_down_bu_e_cb(Adafruit_ILI9341 *, void *);
-static void prev_bu_e_cb(Adafruit_ILI9341 *, void *);
-static void next_bu_e_cb(Adafruit_ILI9341 *, void *);
-
+static void button_draw_callback(Adafruit_ILI9341 *, void *);
 
 #define UI_BUTTON_SIZES (sizeof(button_array)/sizeof(button_array[0]))
-    
+
+static mp3_tk_cmd_t ui_button_mp3_cmd_tbl[] = { 
+    MP3_TK_PLAY, 
+    MP3_TK_PAUSE,
+    MP3_TK_STOP,
+    MP3_TK_VOL_UP,
+    MP3_TK_VOL_DOWN, 
+    MP3_TK_PREV,
+    MP3_TK_NEXT
+};
+
+static char button_text_tbl[][16] = {
+    "PLAY", "PAUSE", "STOP", "V_UP", "V_DW", "PREV", "NEXT"
+};
+
 static ui_button_t button_array[] =
 {
     {
-        &play_bu, 
+        UI_BUTTON, &play_bu, 
         UI_BUTTON_INFO_INIT(PLAY_X, PLAY_Y, PLAY_W, PLAY_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             "Play", 2),
-        play_bu_e_cb, 
-        MP3_TK_PLAY 
+        button_draw_callback, NULL
     }, 
     { 
-        &pause_bu, 
+        UI_BUTTON, &pause_bu, 
         UI_BUTTON_INFO_INIT(PAUSE_X, PAUSE_Y, PAUSE_W, PAUSE_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             "Pause", 2),
-        pause_bu_e_cb, 
-        MP3_TK_PAUSE 
+        button_draw_callback, NULL
     }, 
     { 
-        &stop_bu,
+        UI_BUTTON, &stop_bu,
         UI_BUTTON_INFO_INIT(STOP_X, STOP_Y, STOP_W, STOP_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             "Stop", 2),
-        stop_bu_e_cb, 
-        MP3_TK_STOP
+        button_draw_callback, NULL
     },
     {
-        &vol_up_bu,
+        UI_BUTTON, &vol_up_bu,
         UI_BUTTON_INFO_INIT(VOL_UP_X, VOL_UP_Y, VOL_UP_W, VOL_UP_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             "+", 2),
-        vol_up_bu_e_cb,
-        MP3_TK_VOL_UP
+        button_draw_callback, NULL
     },
     {
-        &vol_down_bu, 
+        UI_BUTTON, &vol_down_bu, 
         UI_BUTTON_INFO_INIT(VOL_DW_X, VOL_DW_Y, VOL_DW_W, VOL_DW_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
-                            "-", 2),        
-        vol_down_bu_e_cb, 
-        MP3_TK_VOL_DOWN 
+                            "-", 2), 
+        button_draw_callback, NULL
     },
     { 
-        &prev_bu,
+        UI_BUTTON, &prev_bu,
         UI_BUTTON_INFO_INIT(PREV_X, PREV_Y, PREV_W, PREV_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             "<", 2),
-        prev_bu_e_cb, 
-        MP3_TK_PREV
+        button_draw_callback, NULL
     },
     { 
-        &next_bu,
+        UI_BUTTON, &next_bu,
         UI_BUTTON_INFO_INIT(NEXT_X, NEXT_Y, NEXT_W, NEXT_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             ">", 2),
-        next_bu_e_cb, 
-        MP3_TK_NEXT  
+        button_draw_callback, NULL
     }
 };
 #endif
@@ -400,128 +404,110 @@ static ui_button_t button_array[] =
 #define BU_TEXT_RECT_Y (10U)
 #define BU_TEXT_RECT_W (110U)
 #define BU_TEXT_RECT_H (40U)
-#define BU_TEXT_X (10U)
-#define BU_TEXT_Y (20U)
+#define BU_TEXT_X (120U)
+#define BU_TEXT_Y (10U)
 #define BUTTON_TEXT_FILL ILI9341_MAROON
 #define BUTTON_TEXT_COLOR ILI9341_WHITE
 #define BU_TEXT_SIZE (2)
 
-#define VOL_TEXT_RECT_X (120U)
-#define VOL_TEXT_RECT_Y (10U)
+#define VOL_TEXT_RECT_X (10U)
+#define VOL_TEXT_RECT_Y (50U)
 #define VOL_TEXT_RECT_W (110U)
 #define VOL_TEXT_RECT_H (40U)
-#define VOL_TEXT_X (120U)
-#define VOL_TEXT_Y (20U)
+#define VOL_TEXT_X (10U)
+#define VOL_TEXT_Y (50U)
 #define VOL_TEXT_FILL ILI9341_MAGENTA
 #define VOL_TEXT_COLOR ILI9341_WHITE
 #define VOL_TEXT_SIZE (2)
+
+#define PRO_TEXT_RECT_X (120U)
+#define PRO_TEXT_RECT_Y (50U)
+#define PRO_TEXT_RECT_W (110U)
+#define PRO_TEXT_RECT_H (40U)
+#define PRO_TEXT_X (120U)
+#define PRO_TEXT_Y (50U)
+#define PRO_TEXT_FILL ILI9341_MAROON
+#define PRO_TEXT_COLOR ILI9341_WHITE
+#define PRO_TEXT_SIZE (2)
+
+#define SONG_TEXTBOX_ID 0
+#define BU_TEXTBOX_ID 1
+#define VOL_TEXTBOX_ID 2
+#define PRO_BAR_TEXTBOX_ID 3
 
 static void textbox_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg);
 
 static ui_textbox_t ui_textbox_tbl[] = 
 {
     {
+        UI_TEXTBOX,
         TEXT_INFO_INIT(SONG_REC_X, SONG_REC_Y, SONG_REC_W, SONG_REC_H, 
                      SONG_TEXT_X, SONG_TEXT_Y, SONG_TEXT_FILL, SONG_TEXT_COLOR,
                      SONG_TEXT_SIZE, ""),
-        textbox_draw_callback,
-        NULL
+        textbox_draw_callback
     },
     {
+        UI_TEXTBOX,
         TEXT_INFO_INIT(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, 
                      BU_TEXT_X, BU_TEXT_Y, BUTTON_TEXT_FILL, BUTTON_TEXT_COLOR,
                      BU_TEXT_SIZE, ""),
-        textbox_draw_callback,
-        NULL
+        textbox_draw_callback
+    },
+    {
+        UI_TEXTBOX,
+        TEXT_INFO_INIT(VOL_TEXT_RECT_X, VOL_TEXT_RECT_Y, VOL_TEXT_RECT_W, VOL_TEXT_RECT_H, 
+                     VOL_TEXT_X, VOL_TEXT_Y, VOL_TEXT_FILL, VOL_TEXT_COLOR,
+                     VOL_TEXT_SIZE, ""),
+        textbox_draw_callback
+    },
+    {
+        UI_TEXTBOX,
+        TEXT_INFO_INIT(PRO_TEXT_RECT_X, PRO_TEXT_RECT_Y, PRO_TEXT_RECT_W, PRO_TEXT_RECT_H, 
+                     PRO_TEXT_X, PRO_TEXT_Y, PRO_TEXT_FILL, PRO_TEXT_COLOR,
+                     PRO_TEXT_SIZE, ""),
+        textbox_draw_callback
     }
 };
 
-
-void play_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+static void button_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg)
 {
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    _gfx->fillRect(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, BUTTON_TEXT_FILL);
-    _gfx->setCursor(BU_TEXT_X, BU_TEXT_Y);
-    _gfx->setTextColor(BUTTON_TEXT_COLOR);  
-    _gfx->setTextSize(BU_TEXT_SIZE);
-    PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , "PLAY");
-}
-
-void pause_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
-{    
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    _gfx->fillRect(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, BUTTON_TEXT_FILL);
-    _gfx->setCursor(BU_TEXT_X, BU_TEXT_Y);
-    _gfx->setTextColor(BUTTON_TEXT_COLOR);  
-    _gfx->setTextSize(BU_TEXT_SIZE);
-    PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , "PAUSE");
-}
-
-void stop_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
-{
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    _gfx->fillRect(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, BUTTON_TEXT_FILL);
-    _gfx->setCursor(BU_TEXT_X, BU_TEXT_Y);
-    _gfx->setTextColor(BUTTON_TEXT_COLOR);  
-    _gfx->setTextSize(BU_TEXT_SIZE);
-    PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , "STOP");
-}
-
-void vol_up_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
-{
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    _gfx->fillRect(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, BUTTON_TEXT_FILL);
-    _gfx->setCursor(BU_TEXT_X, BU_TEXT_Y);
-    _gfx->setTextColor(BUTTON_TEXT_COLOR);  
-    _gfx->setTextSize(BU_TEXT_SIZE);
-    PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , "VOLUP");
-}
-
-void vol_down_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
-{
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    _gfx->fillRect(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, BUTTON_TEXT_FILL);
-    _gfx->setCursor(BU_TEXT_X, BU_TEXT_Y);
-    _gfx->setTextColor(BUTTON_TEXT_COLOR);  
-    _gfx->setTextSize(BU_TEXT_SIZE);
-    PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , "VOLDW");
-}
-
-void prev_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
-{
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    _gfx->fillRect(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, BUTTON_TEXT_FILL);
-    _gfx->setCursor(BU_TEXT_X, BU_TEXT_Y);
-    _gfx->setTextColor(BUTTON_TEXT_COLOR);  
-    _gfx->setTextSize(BU_TEXT_SIZE);
-    PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , "PREV");
-}
-
-void next_bu_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
-{
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    _gfx->fillRect(BU_TEXT_RECT_X, BU_TEXT_RECT_Y, BU_TEXT_RECT_W, BU_TEXT_RECT_H, BUTTON_TEXT_FILL);
-    _gfx->setCursor(BU_TEXT_X, BU_TEXT_Y);
-    _gfx->setTextColor(BUTTON_TEXT_COLOR);  
-    _gfx->setTextSize(BU_TEXT_SIZE);
-    PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , "NEXT");
+    ui_callback_arg_t *callback_arg;
+    ui_button_t *bu;
+    Adafruit_GFX_Button *button;
+    ui_button_info_t *bu_info;
+    
+    callback_arg = (ui_callback_arg_t *)_arg;
+    bu = (ui_button_t *)callback_arg->ui_obj;
+    button = bu->button;
+    bu_info = &bu->button_info;
+    
+    button->initButton(_gfx,
+                   bu_info->x + bu_info->w / 2, bu_info->y + bu_info->h / 2, 
+                   bu_info->w, bu_info->h, 
+                   bu_info->outline, bu_info->fill, bu_info->textcolor, 
+                   bu_info->label, bu_info->textsize);
+    button->drawButton();
 }
 
 static void textbox_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg)
 {
-    ui_textbox_info_t * text_p;
+    ui_callback_arg_t *cmd_arg_p = (ui_callback_arg_t *)_arg;
+    ui_textbox_t * textbox_p;
+    ui_textbox_info_t *info_p;
     const char *p;
     uint32_t u32_count;
     
-    text_p = (ui_textbox_info_t *)_arg;
-    p = (const char *)text_p->content;
+    cmd_arg_p = (ui_callback_arg_t *)_arg;
+    textbox_p = (ui_textbox_t *)cmd_arg_p->ui_obj;
+    info_p = &textbox_p->text_info;
+    p = (const char *)info_p->content;
     u32_count = 0;
     
-    _gfx->fillRect(text_p->rec_x, text_p->rec_y, text_p->rec_w, text_p->rec_h, 
-                   text_p->fill);
-    _gfx->setCursor(text_p->text_x, text_p->text_y);
-    _gfx->setTextColor(text_p->text_color);
-    _gfx->setTextSize(text_p->text_size);
+    _gfx->fillRect(info_p->rec_x, info_p->rec_y, info_p->rec_w, info_p->rec_h, 
+                   info_p->fill);
+    _gfx->setCursor(info_p->text_x, info_p->text_y);
+    _gfx->setTextColor(info_p->text_color);
+    _gfx->setTextSize(info_p->text_size);
     
     while (u32_count < 16 && *p != '\0') {
         _gfx->write(*p);
@@ -530,35 +516,67 @@ static void textbox_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg)
     }
 }
 
-static void song_text_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+//static void progress_bar_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+//{
+//    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
+//    uint32_t u32_progress_bar = 220 * cmd_arg_p->u32_value / 100;
+//    _gfx->fillRect(10, 120, 220, 20, ILI9341_BLACK);
+//    _gfx->fillRect(10, 120, u32_progress_bar, 20, ILI9341_LIGHTGREY);
+//}
+
+uint8_t button_draw(ui_button_t *button, char *buf, uint32_t buf_len)
 {
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    char *p;
-    uint32_t u32_count;
+
+    display_tk_cmd_msg_t *cmd_msg_p = NULL;
+    uint8_t u8_error = OS_ERR_NONE;
     
-    cmd_arg_p = (cmd_arg_t *)_arg;
-    p = cmd_arg_p->buf;
-    u32_count = 0;
-    
-    _gfx->fillRect(SONG_REC_X, SONG_REC_Y, SONG_REC_W, SONG_REC_H, SONG_TEXT_FILL);
-    _gfx->setCursor(SONG_TEXT_X, SONG_TEXT_Y);
-    _gfx->setTextColor(SONG_TEXT_COLOR);  
-    _gfx->setTextSize(SONG_TEXT_SIZE);
-    
-    while (u32_count < 16 && *p != '\0') {
-        _gfx->write(*p);
-        ++p;
-        ++u32_count;
+    // get memory block
+    cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+            
+    if (!cmd_msg_p) {
+        PrintWithBuf(buf, buf_len, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
     }
-    //PrintToLcdWithBuf((char *)cmd_arg_p->print_buf, cmd_arg_p->print_buf_len , cmd_arg_p->buf);
+            
+    cmd_msg_p->command = DISPLAY_TK_UI_CB;
+    cmd_msg_p->ui_type = UI_BUTTON;
+    cmd_msg_p->ui_obj = (void *)button;
+                
+    u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+                
+    if (u8_error != OS_ERR_NONE) {
+        PrintWithBuf(buf, buf_len, "Mp3 Task: cmd post fails: %d\n", u8_error);
+    }
+    
+    return u8_error;
 }
 
-static void progress_bar_e_cb(Adafruit_ILI9341 *_gfx, void *_arg)
+uint8_t textbox_update(ui_textbox_t *textbox, char *label, uint32_t len, char *buf, uint32_t buf_len)
 {
-    cmd_arg_t *cmd_arg_p = (cmd_arg_t *)_arg;
-    uint32_t u32_progress_bar = 220 * cmd_arg_p->u32_value / 100;
-    _gfx->fillRect(10, 120, 220, 20, ILI9341_BLACK);
-    _gfx->fillRect(10, 120, u32_progress_bar, 20, ILI9341_LIGHTGREY);
+
+    display_tk_cmd_msg_t *cmd_msg_p = NULL;
+    uint8_t u8_error = OS_ERR_NONE;
+    
+    // get memory block
+    cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+            
+    if (!cmd_msg_p) {
+        PrintWithBuf(buf, buf_len, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
+    }
+            
+    cmd_msg_p->command = DISPLAY_TK_UI_CB;
+    cmd_msg_p->ui_type = UI_TEXTBOX;
+    cmd_msg_p->ui_obj = (void *)textbox;
+    
+    memset(cmd_msg_p->buf, 0, 16);
+    memcpy(cmd_msg_p->buf, label, len);
+                
+    u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+                
+    if (u8_error != OS_ERR_NONE) {
+        PrintWithBuf(buf, buf_len, "Mp3 Task: cmd post fails: %d\n", u8_error);
+    }
+
+    return u8_error;
 }
 
 /************************************************************************************
@@ -672,27 +690,14 @@ static void DrawGrid(Adafruit_ILI9341 *gfx,
     }
 }
 
-static void DrawButtons(Adafruit_ILI9341 *gfx)
+static void DrawButtons2(char *print_buf, uint32_t u32_len)
 {
     uint32_t u32_i;
-    ui_button_info_t *bu_info;
-    Adafruit_GFX_Button *bu;
     
     for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {
-        bu = button_array[u32_i].button;
-        bu_info = &button_array[u32_i].button_info;
         
-        bu->initButton(gfx,
-                       bu_info->x + bu_info->w / 2, bu_info->y + bu_info->h / 2, 
-                       bu_info->w, bu_info->h, 
-                       bu_info->outline, bu_info->fill, bu_info->textcolor, 
-                       bu_info->label, bu_info->textsize);
+        button_draw(&button_array[u32_i], print_buf, u32_len);
     }
-    
-    for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {
-        bu = button_array[u32_i].button;
-        bu->drawButton();
-    } 
 }
 
 /************************************************************************************
@@ -748,7 +753,8 @@ void LcdDisplayTask(void* pdata)
     // draw a retangular for process bar
     lcdCtrl.drawRect(10, 110, 220, 40, ILI9341_MAROON);
     
-    DrawButtons(&lcdCtrl);
+    //DrawButtons(&lcdCtrl);
+    DrawButtons2(buf, BUFSIZE);
     
     PrintWithBuf(buf, BUFSIZE, "Display Task waits for Touch task");
     
@@ -760,6 +766,7 @@ void LcdDisplayTask(void* pdata)
     
     display_tk_cmd_msg_t *cmd_msg_p;
     display_tk_cmd_msg_t cmd_msg;
+    ui_callback_arg_t ui_callback_arg;
 
 //    uint32_t u32_i;
 //    ui_button_t *bu;
@@ -771,10 +778,16 @@ void LcdDisplayTask(void* pdata)
         cmd_msg_p = (display_tk_cmd_msg_t *)OSQPend(diplay_tk_cmd_queue, TIMEOUT_INFINITE, &u8_error);
         
         // copy msg
+        memcpy(&cmd_msg, cmd_msg_p, sizeof(display_tk_cmd_msg_t));
         cmd_msg = *cmd_msg_p;
         
         // release resource to memory pool(uCOS memory heap)
         u8_error = OSMemPut(cmd_msg_mem, cmd_msg_p);
+        
+        if (u8_error != OS_ERR_NONE) {
+            PrintWithBuf(buf, BUFSIZE, "Error: Display Task mem free %d\n", u8_error);
+        }
+        
         cmd_msg_p = (display_tk_cmd_msg_t *)0;
         
         if (u8_error) {
@@ -804,12 +817,41 @@ void LcdDisplayTask(void* pdata)
 //            }
             break;
         case DISPLAY_TK_UI_CB:
-            if (cmd_msg.event_callback) {
-                cmd_msg.argu.print_buf = (uint8_t *)buf;
-                cmd_msg.argu.print_buf_len = BUFSIZE;
-                cmd_msg.event_callback(&lcdCtrl, (void *)&cmd_msg.argu);
+            switch (cmd_msg.ui_type) {
+            case UI_TEXTBOX:
+                
+                ui_textbox_t *textbox;
+                ui_textbox_info_t *textbox_info;
+                
+                textbox = (ui_textbox_t *) cmd_msg.ui_obj;
+                textbox_info = &textbox->text_info;
+                memcpy(textbox_info->content, cmd_msg.buf, 16);
+                
+                ui_callback_arg.ui_obj = cmd_msg.ui_obj;
+                ui_callback_arg.print_buf = buf;
+                ui_callback_arg.len = BUFSIZE;
+                
+                textbox->draw_callback(&lcdCtrl, (void *)&ui_callback_arg);
+                break;
+            case UI_BUTTON:
+                
+                ui_button_t *button;
+                
+                button = (ui_button_t *) cmd_msg.ui_obj;
+                                
+                ui_callback_arg.ui_obj = cmd_msg.ui_obj;
+                ui_callback_arg.print_buf = buf;
+                ui_callback_arg.len = BUFSIZE;
+                
+                button->draw_callback(&lcdCtrl, (void *)&ui_callback_arg);
+                break;
+            case UI_PROBAR:
+                break;
+            default:
+                break;
             }
             break;
+            
         case DISPLAY_TK_NONE:
             break;
         default:
@@ -903,31 +945,11 @@ void TouchTask(void* pdata)
                     button_match = 1;
                     
                     // TODO: for sending a copy, use uCOS memory heap
-                    u8_error = OSMboxPost(mp3_tk_cmd_mb, &bu->mp3_tk_cmd);
+                    u8_error = OSMboxPost(mp3_tk_cmd_mb, &ui_button_mp3_cmd_tbl[u32_i]);
                     
-                    // This is ui event
-                    if (bu->event_callback) {
-                        
-                        // get memory block
-                        cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                        if (!cmd_msg_p) {
-                            PrintWithBuf(buf, BUFSIZE, "Touch Task: cmd mem allocate fails: %d\n", u8_error);
-                        }
-                        
-                        // if get memory, send click event to display task
-                        if (cmd_msg_p) {
-            
-                            cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                            cmd_msg_p->event_callback = bu->event_callback;
-            
-                            u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                            if (u8_error != OS_ERR_NONE) {
-                                PrintWithBuf(buf, BUFSIZE, "Touch Task: cmd post fails: %d\n", u8_error);
-                            }
-                        }
-                    }                 
+                    u8_error = textbox_update(&ui_textbox_tbl[BU_TEXTBOX_ID], 
+                                              button_text_tbl[u32_i], 16, buf, BUFSIZE); 
+                                              
                     break;
                 }
             }
@@ -946,6 +968,17 @@ void TouchTask(void* pdata)
    Runs MP3 demo code
 
 ************************************************************************************/
+
+static void progress_text_generate(uint32_t u32_num, char *dst, uint32_t u32_len)
+{
+    if (u32_len < 8) return;
+    
+    dst[0] = (u32_num/100)?(u32_num/100)+'0':' ';
+    dst[1] = (u32_num/10)?(u32_num/10)+'0':' ';    
+    dst[2] = u32_num%10+'0';
+    dst[3] = '%';
+    dst[4] = '\0';   
+}
 
 #define MP3_BUF_SIZE 2048
 
@@ -1007,8 +1040,9 @@ void Mp3DriverTask(void* pdata)
 //    }
     
     static char filename[4][13] = { "TRAIN001.MP3", "FINAL.MP3", "LEVEL_5.MP3", "SISTER.MP3" };
+    static char progress_buf[16];
     static uint32_t u32_name_index = 0, u32_filesize = 0, isplay = 0;
-    static uint32_t u32_playsize, u32_new_chunk_id, u32_old_chunk_id;
+    static uint32_t u32_playsize, u32_new_chunk_id = 0, u32_old_chunk_id = 0;
     static uint8_t mp3_volumn = 0x10, u8_error;
     static mp3_tk_cmd_t *mp3_tk_command_p = NULL;
     static display_tk_cmd_msg_t *cmd_msg_p = NULL;
@@ -1019,23 +1053,10 @@ void Mp3DriverTask(void* pdata)
     
     nbytes = MP3_BUF_SIZE;
 
-    // get memory block
-    cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-    if (!cmd_msg_p) {
-        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-    }
-            
-    cmd_msg_p->command = DISPLAY_TK_UI_CB;
-    cmd_msg_p->event_callback = song_text_e_cb;
-    memset(cmd_msg_p->argu.buf, 0, 16);
-    memcpy(cmd_msg_p->argu.buf, filename[u32_name_index], 5);
-                
-    u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-    if (u8_error != OS_ERR_NONE) {
-        PrintWithBuf(buf, BUFSIZE, "Touch Task: cmd post fails: %d\n", u8_error);
-    }
+    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 6, buf, BUFSIZE);
+    
+    progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+    u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
     
     while (1)
     {
@@ -1059,22 +1080,25 @@ void Mp3DriverTask(void* pdata)
                     u32_playsize = 0;
                     u32_new_chunk_id = u32_old_chunk_id = 0;
                     
-                    cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                    if (!cmd_msg_p) {
-                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                    }
-            
-                    cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                    cmd_msg_p->event_callback = progress_bar_e_cb;
-                    cmd_msg_p->argu.u32_value = u32_old_chunk_id;
-                
-                    u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                    if (u8_error != OS_ERR_NONE) {
-                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
-                    }
+    
+                    progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                    u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
                     
+//                    cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);            
+//                    if (!cmd_msg_p) {
+//                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
+//                    }
+//            
+//                    cmd_msg_p->command = DISPLAY_TK_UI_CB;
+//                    cmd_msg_p->event_callback = progress_bar_e_cb;
+//                    cmd_msg_p->argu.u32_value = u32_old_chunk_id;
+//                
+//                    u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+//                
+//                    if (u8_error != OS_ERR_NONE) {
+//                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
+//                    }
+//                    
                 }
                 isplay = 1;
             }
@@ -1088,23 +1112,26 @@ void Mp3DriverTask(void* pdata)
             if (file) {
                 file.close();
                 
-                // get memory block
-                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-                
-                // to clear rest data in vs1053
-                if (!cmd_msg_p) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                }
-            
-                cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                cmd_msg_p->event_callback = progress_bar_e_cb;
-                cmd_msg_p->argu.u32_value = 0;
-                
-                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                if (u8_error != OS_ERR_NONE) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
-                }
+                u32_new_chunk_id = u32_old_chunk_id = 0;
+                progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);              
+//                // get memory block
+//                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+//                
+//                // to clear rest data in vs1053
+//                if (!cmd_msg_p) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
+//                }
+//            
+//                cmd_msg_p->command = DISPLAY_TK_UI_CB;
+//                cmd_msg_p->event_callback = progress_bar_e_cb;
+//                cmd_msg_p->argu.u32_value = 0;
+//                
+//                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+//                
+//                if (u8_error != OS_ERR_NONE) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
+//                }
                 
                 mp3_dr_command = MP3_DR_SOFT_RESET;
             }
@@ -1135,39 +1162,27 @@ void Mp3DriverTask(void* pdata)
                     mp3_dr_command = MP3_DR_SOFT_RESET;
                 }
                 
-                // get memory block
-                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                if (!cmd_msg_p) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                }
-            
-                cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                cmd_msg_p->event_callback = song_text_e_cb;
-                memset(cmd_msg_p->argu.buf, 0, 16);
-                memcpy(cmd_msg_p->argu.buf, filename[u32_name_index], 5);
+                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], 
+                                            filename[u32_name_index], 6, buf, BUFSIZE);
                 
-                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                if (u8_error != OS_ERR_NONE) {
-                    PrintWithBuf(buf, BUFSIZE, "Touch Task: cmd post fails: %d\n", u8_error);
-                }
-                
-                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                if (!cmd_msg_p) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                }
-            
-                cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                cmd_msg_p->event_callback = progress_bar_e_cb;
-                cmd_msg_p->argu.u32_value = 0;
-                
-                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                if (u8_error != OS_ERR_NONE) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
-                }
+                u32_new_chunk_id = u32_old_chunk_id = 0;
+                progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+//                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+//            
+//                if (!cmd_msg_p) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
+//                }
+//            
+//                cmd_msg_p->command = DISPLAY_TK_UI_CB;
+//                cmd_msg_p->event_callback = progress_bar_e_cb;
+//                cmd_msg_p->argu.u32_value = 0;
+//                
+//                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+//                
+//                if (u8_error != OS_ERR_NONE) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
+//                }
                 
             }
             break;
@@ -1184,39 +1199,26 @@ void Mp3DriverTask(void* pdata)
                     mp3_dr_command = MP3_DR_SOFT_RESET;                  
                 }
                 
-                // get memory block
-                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                if (!cmd_msg_p) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                }
-            
-                cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                cmd_msg_p->event_callback = song_text_e_cb;
-                memset(cmd_msg_p->argu.buf, 0, 16);
-                memcpy(cmd_msg_p->argu.buf, filename[u32_name_index], 5);
+                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 6, buf, BUFSIZE);
                 
-                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                if (u8_error != OS_ERR_NONE) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
-                }
-                
-                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                if (!cmd_msg_p) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                }
-            
-                cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                cmd_msg_p->event_callback = progress_bar_e_cb;
-                cmd_msg_p->argu.u32_value = 0;
-                
-                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                if (u8_error != OS_ERR_NONE) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
-                }
+                u32_new_chunk_id = u32_old_chunk_id = 0;
+                progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);                
+//                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+//            
+//                if (!cmd_msg_p) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
+//                }
+//            
+//                cmd_msg_p->command = DISPLAY_TK_UI_CB;
+//                cmd_msg_p->event_callback = progress_bar_e_cb;
+//                cmd_msg_p->argu.u32_value = 0;
+//                
+//                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+//                
+//                if (u8_error != OS_ERR_NONE) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
+//                }
                 
             }
             break;
@@ -1236,39 +1238,45 @@ void Mp3DriverTask(void* pdata)
                 u32_new_chunk_id = u32_playsize * CHUNCK_SIZE / u32_filesize;
                 if (u32_new_chunk_id != u32_old_chunk_id) {
                     u32_old_chunk_id = u32_new_chunk_id;
-                    // get memory block
-                    cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                    if (!cmd_msg_p) {
-                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                    }
-            
-                    cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                    cmd_msg_p->event_callback = progress_bar_e_cb;
-                    cmd_msg_p->argu.u32_value = u32_old_chunk_id;
-                
-                    u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                    if (u8_error != OS_ERR_NONE) {
-                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
-                    }
+                    
+                    progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                    u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+//                    // get memory block
+//                    cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+//            
+//                    if (!cmd_msg_p) {
+//                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
+//                    }
+//            
+//                    cmd_msg_p->command = DISPLAY_TK_UI_CB;
+//                    cmd_msg_p->event_callback = progress_bar_e_cb;
+//                    cmd_msg_p->argu.u32_value = u32_old_chunk_id;
+//                
+//                    u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+//                
+//                    if (u8_error != OS_ERR_NONE) {
+//                        PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
+//                    }
                 }
             } else {
-                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
-            
-                if (!cmd_msg_p) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
-                }
-            
-                cmd_msg_p->command = DISPLAY_TK_UI_CB;
-                cmd_msg_p->event_callback = progress_bar_e_cb;
-                cmd_msg_p->argu.u32_value = 0;
-                
-                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
-                
-                if (u8_error != OS_ERR_NONE) {
-                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
-                }
+                u32_new_chunk_id = u32_old_chunk_id = 0;
+                progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+//                cmd_msg_p = (display_tk_cmd_msg_t *)OSMemGet(cmd_msg_mem, &u8_error);
+//            
+//                if (!cmd_msg_p) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd mem allocate fails: %d\n", u8_error);
+//                }
+//            
+//                cmd_msg_p->command = DISPLAY_TK_UI_CB;
+//                cmd_msg_p->event_callback = progress_bar_e_cb;
+//                cmd_msg_p->argu.u32_value = 0;
+//                
+//                u8_error = OSQPost(diplay_tk_cmd_queue, cmd_msg_p);
+//                
+//                if (u8_error != OS_ERR_NONE) {
+//                    PrintWithBuf(buf, BUFSIZE, "Mp3 Task: cmd post fails: %d\n", u8_error);
+//                }
                 
                 file.close();
                 isplay = 0;
@@ -1291,27 +1299,6 @@ void Mp3DriverTask(void* pdata)
             ;
         }
         OSTimeDly(30);
-        
-//        file = SD.open(filename, O_READ);
-//        PrintWithBuf(buf, BUFSIZE, "Play file: %d %s\n", count++, file.name());
-//        play_song_count = 0;
-//        while (file.available() && play_song_count++ < 1000) {
-//        
-//            
-//            nbytes = MP3_BUF_SIZE;
-//            
-//            nbytes = file.read(u8_mp3_buff, nbytes);
-//
-//            Mp3Stream(hMp3, u8_mp3_buff, nbytes);
-//            
-//        }
-//        file.close();
-        
-//        OSTimeDly(500);
-//        PrintWithBuf(buf, BUFSIZE, "Begin streaming sound file  count=%d\n", ++count);
-//        // Mp3Stream(hMp3, (INT8U*)Train_Crossing, sizeof(Train_Crossing)); 
-//        Mp3StreamSDFile(hMp3, "TRAIN001.mp3");
-//        PrintWithBuf(buf, BUFSIZE, "Done streaming sound file  count=%d\n", count);
     }
 }
 
