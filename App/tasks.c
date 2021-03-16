@@ -410,7 +410,7 @@ static ui_button_t button_array[] =
 
 #define SONG_REC_X (10U)
 #define SONG_REC_Y (10U)
-#define SONG_REC_W (110U)
+#define SONG_REC_W (160U)
 #define SONG_REC_H (40U)
 #define SONG_TEXT_X (10U)
 #define SONG_TEXT_Y (24U)
@@ -418,11 +418,11 @@ static ui_button_t button_array[] =
 #define SONG_TEXT_COLOR ILI9341_WHITE
 #define SONG_TEXT_SIZE (2)
 
-#define BU_TEXT_RECT_X (120U)
+#define BU_TEXT_RECT_X (170U)
 #define BU_TEXT_RECT_Y (10U)
-#define BU_TEXT_RECT_W (110U)
+#define BU_TEXT_RECT_W (60U)
 #define BU_TEXT_RECT_H (40U)
-#define BU_TEXT_X (120U)
+#define BU_TEXT_X (170U)
 #define BU_TEXT_Y (24U)
 #define BUTTON_TEXT_FILL ILI9341_MAROON
 #define BUTTON_TEXT_COLOR ILI9341_WHITE
@@ -430,19 +430,19 @@ static ui_button_t button_array[] =
 
 #define VOL_TEXT_RECT_X (10U)
 #define VOL_TEXT_RECT_Y (50U)
-#define VOL_TEXT_RECT_W (110U)
+#define VOL_TEXT_RECT_W (160U)
 #define VOL_TEXT_RECT_H (40U)
 #define VOL_TEXT_X (10U)
-#define VOL_TEXT_Y (50U)
+#define VOL_TEXT_Y (64U)
 #define VOL_TEXT_FILL ILI9341_MAGENTA
 #define VOL_TEXT_COLOR ILI9341_WHITE
 #define VOL_TEXT_SIZE (2)
 
-#define PRO_TEXT_RECT_X (120U)
+#define PRO_TEXT_RECT_X (170U)
 #define PRO_TEXT_RECT_Y (50U)
-#define PRO_TEXT_RECT_W (110U)
+#define PRO_TEXT_RECT_W (60U)
 #define PRO_TEXT_RECT_H (40U)
-#define PRO_TEXT_X (120U)
+#define PRO_TEXT_X (170U)
 #define PRO_TEXT_Y (64U)
 #define PRO_TEXT_FILL ILI9341_MAROON
 #define PRO_TEXT_COLOR ILI9341_WHITE
@@ -780,8 +780,7 @@ static void DrawButtons2(char *print_buf, uint32_t u32_len)
 {
     uint32_t u32_i;
     
-    for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {
-        
+    for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {        
         button_draw(&button_array[u32_i], print_buf, u32_len);
     }
 }
@@ -865,7 +864,6 @@ void LcdDisplayTask(void* pdata)
         
         // copy msg
         memcpy(&cmd_msg, cmd_msg_p, sizeof(display_tk_cmd_msg_t));
-        cmd_msg = *cmd_msg_p;
         
         // release resource to memory pool(uCOS memory heap)
         u8_error = OSMemPut(cmd_msg_mem, cmd_msg_p);
@@ -880,27 +878,7 @@ void LcdDisplayTask(void* pdata)
         }
         
         switch (cmd_msg.command) {
-        case DISPLAY_TK_CLICK:
-//            point_p = &cmd_msg.point;
-//            
-//            // find first match button
-//            for (u32_i = 0;u32_i < UI_BUTTON_SIZES;++u32_i) {
-//                bu = &button_array[u32_i];
-//                if (bu->button->contains(point_p->x, point_p->y)) {
-//                    
-//                    // This is ui event
-//                    if (bu->event_callback) {
-//                        cmd_msg.argu.print_buf = (uint8_t *)buf;
-//                        cmd_msg.argu.print_buf_len = BUFSIZE;
-//                        bu->event_callback(&lcdCtrl, (void *)&cmd_msg.argu);
-//                    }
-//                    
-//                    // TODO: for sending a copy, use uCOS memory heap
-//                    u8_error = OSMboxPost(mp3_tk_cmd_mb, &bu->mp3_tk_cmd);
-//                    
-//                    break;
-//                }
-//            }
+        case DISPLAY_TK_CLICK: // deprecated
             break;
         case DISPLAY_TK_UI_CB:
             switch (cmd_msg.ui_type) {
@@ -909,10 +887,12 @@ void LcdDisplayTask(void* pdata)
                 ui_textbox_t *textbox;
                 ui_textbox_info_t *textbox_info;
                 
+                // update text box context
                 textbox = (ui_textbox_t *) cmd_msg.ui_obj;
                 textbox_info = &textbox->text_info;
                 memcpy(textbox_info->content, cmd_msg.buf, 16);
                 
+                // prepare passing argument to callback function
                 ui_callback_arg.ui_obj = cmd_msg.ui_obj;
                 ui_callback_arg.print_buf = buf;
                 ui_callback_arg.len = BUFSIZE;
@@ -924,7 +904,8 @@ void LcdDisplayTask(void* pdata)
                 ui_button_t *button;
                 
                 button = (ui_button_t *) cmd_msg.ui_obj;
-                                
+                
+                // prepare passing argument to callback function
                 ui_callback_arg.ui_obj = cmd_msg.ui_obj;
                 ui_callback_arg.print_buf = buf;
                 ui_callback_arg.len = BUFSIZE;
@@ -937,9 +918,11 @@ void LcdDisplayTask(void* pdata)
                 
                 progressbar = (ui_progressbar_t *) cmd_msg.ui_obj;
                 
+                // update curr and total progress value in progress bar
                 progressbar->curr = cmd_msg.u32_value0;
                 progressbar->total = cmd_msg.u32_value1;
                 
+                // prepare passing argument to callback function
                 ui_callback_arg.ui_obj = cmd_msg.ui_obj;
                 ui_callback_arg.print_buf = buf;
                 ui_callback_arg.len = BUFSIZE;
@@ -1046,18 +1029,17 @@ void TouchTask(void* pdata)
                     // TODO: for sending a copy, use uCOS memory heap
                     u8_error = OSMboxPost(mp3_tk_cmd_mb, &ui_button_mp3_cmd_tbl[u32_i]);
                     
-                    u8_error = textbox_update(&ui_textbox_tbl[BU_TEXTBOX_ID], 
-                                              button_text_tbl[u32_i], 16, buf, BUFSIZE); 
+                    u8_error = textbox_update(&ui_textbox_tbl[BU_TEXTBOX_ID], button_text_tbl[u32_i], 16, buf, BUFSIZE); 
                                               
                     break;
                 }
             }
         }
         
-        if (!touched || !button_match) {
-            OSTimeDly(30);
-        } else {
+        if (touched && button_match) {
             OSTimeDly(100);
+        } else {
+            OSTimeDly(30);
         }
     }
 }
@@ -1077,6 +1059,22 @@ static void progress_text_generate(uint32_t u32_num, char *dst, uint32_t u32_len
     dst[2] = u32_num%10+'0';
     dst[3] = '%';
     dst[4] = '\0';   
+}
+
+static void vol_text_generate(uint32_t u32_num, char *dst, uint32_t u32_len)
+{
+    if (u32_len < 16) return;
+     
+    dst[0] = 'V';
+    dst[1] = 'O';
+    dst[2] = 'L';
+    dst[3] = ':';
+    dst[4] = (u32_num/10)?(u32_num/10)+'0':' ';    
+    dst[5] = u32_num%10+'0';
+    dst[6] = '/';
+    dst[7] = '1';
+    dst[8] = '0';
+    dst[9] = '\0';   
 }
 
 #define MP3_BUF_SIZE 2048
@@ -1139,10 +1137,13 @@ void Mp3DriverTask(void* pdata)
 //    }
     
     static char filename[4][13] = { "TRAIN001.MP3", "FINAL.MP3", "LEVEL_5.MP3", "SISTER.MP3" };
+    static uint8_t vol_tbl[] = 
+        { 0xFE, 0x50, 0x40, 0x3B, 0x38, 0x30, 0x2C, 0x26, 0x24, 0x23 };
     static char progress_buf[16];
+    static char vol_buf[16];
     static uint32_t u32_name_index = 0, u32_filesize = 0, isplay = 0;
     static uint32_t u32_playsize, u32_new_chunk_id = 0, u32_old_chunk_id = 0;
-    static uint8_t mp3_volumn = 0x10, u8_error;
+    static uint8_t mp3_vol = 0, u8_error;
     static mp3_tk_cmd_t *mp3_tk_command_p = NULL;
     static display_tk_cmd_msg_t *cmd_msg_p = NULL;
     static mp3_tk_cmd_t mp3_tk_command = MP3_TK_NONE;
@@ -1151,8 +1152,13 @@ void Mp3DriverTask(void* pdata)
 #define CHUNCK_SIZE 100
     
     nbytes = MP3_BUF_SIZE;
-
-    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 6, buf, BUFSIZE);
+    
+    Mp3SetVol(hMp3, vol_tbl[mp3_vol], vol_tbl[mp3_vol]);
+    
+    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 16, buf, BUFSIZE);
+    
+    vol_text_generate(mp3_vol, vol_buf, 16);
+    u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
     
     progress_text_generate(u32_old_chunk_id, progress_buf, 16);
     u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
@@ -1161,7 +1167,11 @@ void Mp3DriverTask(void* pdata)
     
     while (1)
     {
-        mp3_tk_command_p = (mp3_tk_cmd_t *)OSMboxAccept(mp3_tk_cmd_mb);
+        if (isplay) {
+            mp3_tk_command_p = (mp3_tk_cmd_t *)OSMboxPend(mp3_tk_cmd_mb, 30, &u8_error);
+        } else {            
+            mp3_tk_command_p = (mp3_tk_cmd_t *)OSMboxPend(mp3_tk_cmd_mb, 0, &u8_error);
+        }
         
         mp3_tk_command = MP3_TK_NONE;
         mp3_dr_command = MP3_DR_NONE;
@@ -1208,18 +1218,26 @@ void Mp3DriverTask(void* pdata)
                 
                 mp3_dr_command = MP3_DR_SOFT_RESET;
             }
-            isplay = 0;
+            if (isplay) { 
+                isplay = 0;
+            }
             break;
         case MP3_TK_VOL_UP:
-            if (mp3_volumn != MP3_VOL_MAX) {
-                --mp3_volumn;
+            if (mp3_vol < sizeof(vol_tbl)/sizeof(vol_tbl[0])) {
+                ++mp3_vol;
                 mp3_dr_command = MP3_DR_VOL_CHANGE;
+                
+                vol_text_generate(mp3_vol, vol_buf, 16);
+                u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
             }
             break;
         case MP3_TK_VOL_DOWN:
-            if (mp3_volumn != MP3_VOL_MIN) {
-                ++mp3_volumn;
+            if (mp3_vol > 0) {
+                --mp3_vol;
                 mp3_dr_command = MP3_DR_VOL_CHANGE;
+                
+                vol_text_generate(mp3_vol, vol_buf, 16);
+                u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
             }
             break;
         case MP3_TK_PREV:
@@ -1235,8 +1253,7 @@ void Mp3DriverTask(void* pdata)
                     mp3_dr_command = MP3_DR_SOFT_RESET;
                 }
                 
-                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], 
-                                            filename[u32_name_index], 6, buf, BUFSIZE);
+                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 16, buf, BUFSIZE);
                 
                 u32_new_chunk_id = u32_old_chunk_id = 0;
                 progress_text_generate(u32_old_chunk_id, progress_buf, 16);
@@ -1259,7 +1276,7 @@ void Mp3DriverTask(void* pdata)
                     mp3_dr_command = MP3_DR_SOFT_RESET;                  
                 }
                 
-                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 6, buf, BUFSIZE);
+                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 16, buf, BUFSIZE);
                 
                 u32_new_chunk_id = u32_old_chunk_id = 0;
                 progress_text_generate(u32_old_chunk_id, progress_buf, 16);
@@ -1279,10 +1296,12 @@ void Mp3DriverTask(void* pdata)
             if (file.available()) {
                 nbytes = MP3_BUF_SIZE;
                 nbytes = file.read(u8_mp3_buff, nbytes);
+                u32_playsize += nbytes;
+                
                 mp3_dr_command = MP3_DR_PLAY_CHUNK;
                 
-                u32_playsize += nbytes;
                 u32_new_chunk_id = u32_playsize * CHUNCK_SIZE / u32_filesize;
+                
                 if (u32_new_chunk_id != u32_old_chunk_id) {
                     u32_old_chunk_id = u32_new_chunk_id;
                     
@@ -1308,7 +1327,7 @@ void Mp3DriverTask(void* pdata)
             Mp3Stream(hMp3, u8_mp3_buff, nbytes);
             break;
         case MP3_DR_VOL_CHANGE:
-            Mp3SetVol(hMp3, mp3_volumn, mp3_volumn);
+            Mp3SetVol(hMp3, vol_tbl[mp3_vol], vol_tbl[mp3_vol]);
             break;
         case MP3_DR_SOFT_RESET:
             Mp3SoftReset(hMp3);
@@ -1318,7 +1337,7 @@ void Mp3DriverTask(void* pdata)
         default:
             ;
         }
-        OSTimeDly(30);
+        //OSTimeDly(30);
     }
 }
 
@@ -1342,7 +1361,3 @@ void PrintToLcdWithBuf(char *buf, int size, char *format, ...)
     PrintToDeviceWithBuf(PrintCharToLcd, buf, size, format, args);
     va_end(args);
 }
-
-
-
-
