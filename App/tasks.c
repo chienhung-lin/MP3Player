@@ -1109,9 +1109,6 @@ void Mp3DriverTask(void* pdata)
 
     // Send initialization data to the MP3 decoder and run a test
     PrintWithBuf(buf, BUFSIZE, "Starting MP3 Task\n");
-
-    //int count = 0;
-    //int play_song_count = 0;
     
     dir = SD.open("/", O_READ);
     
@@ -1120,23 +1117,33 @@ void Mp3DriverTask(void* pdata)
     if (!dir) {
         PrintWithBuf(buf, BUFSIZE, "Error: could not open SD card file '%s'\n", "/");
     }
+
+    static char mp3_files_table[100][16];
+    static char tmpt_file_name[16];
+    static uint32_t u32_max_files = 0;
+    
+    while ((file = dir.openNextFile()) && u32_max_files < 100) {        
+        memset(mp3_files_table[u32_max_files], 0, 16);
+        strncpy(mp3_files_table[u32_max_files], file.name(), 15);
+        
+        char *p = NULL;
+        p = strstr(mp3_files_table[u32_max_files], ".MP3");
+        
+        if (p) {
+            ++u32_max_files;
+        }
+        file.close();
+    }
     
     dir.close();
+    
+    for (uint32_t i = 0;i < u32_max_files; ++i) {
+        PrintWithBuf(buf, BUFSIZE, "MP3 file in the table[%3d] '%s'\n", i, mp3_files_table[i]);
+    }
     
     Mp3Init(hMp3);
     Mp3StreamInit(hMp3);
     
-//    // Test file close
-//    file = SD.open("TRAIN001.mp3", O_READ);
-//    if (file) {
-//        PrintWithBuf(buf, BUFSIZE, "Print file: %s\n", file.name());
-//    }
-//    file.close();
-//    if (file) {
-//        PrintWithBuf(buf, BUFSIZE, "Error: file should have been closed\n");
-//    }
-    
-    static char filename[4][13] = { "TRAIN001.MP3", "FINAL.MP3", "LEVEL_5.MP3", "SISTER.MP3" };
     static uint8_t vol_tbl[] = 
         { 0xFE, 0x50, 0x40, 0x3B, 0x38, 0x30, 0x2C, 0x26, 0x24, 0x23 };
     static char progress_buf[16];
@@ -1155,7 +1162,7 @@ void Mp3DriverTask(void* pdata)
     
     Mp3SetVol(hMp3, vol_tbl[mp3_vol], vol_tbl[mp3_vol]);
     
-    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 16, buf, BUFSIZE);
+    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
     
     vol_text_generate(mp3_vol, vol_buf, 16);
     u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
@@ -1186,7 +1193,7 @@ void Mp3DriverTask(void* pdata)
         case MP3_TK_PLAY:
             if (!isplay) {
                 if (!file) {
-                    file = SD.open(filename[u32_name_index], O_READ);
+                    file = SD.open(mp3_files_table[u32_name_index], O_READ);
                     u32_filesize = file.size();
                     u32_playsize = 0;
                     u32_new_chunk_id = u32_old_chunk_id = 0;
@@ -1253,7 +1260,7 @@ void Mp3DriverTask(void* pdata)
                     mp3_dr_command = MP3_DR_SOFT_RESET;
                 }
                 
-                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 16, buf, BUFSIZE);
+                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
                 
                 u32_new_chunk_id = u32_old_chunk_id = 0;
                 progress_text_generate(u32_old_chunk_id, progress_buf, 16);
@@ -1264,7 +1271,7 @@ void Mp3DriverTask(void* pdata)
             }
             break;
         case MP3_TK_NEXT:
-            if (u32_name_index < 3) {
+            if (u32_name_index < u32_max_files) {
                 ++u32_name_index;
                 
                 if (file) {
@@ -1276,7 +1283,7 @@ void Mp3DriverTask(void* pdata)
                     mp3_dr_command = MP3_DR_SOFT_RESET;                  
                 }
                 
-                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], filename[u32_name_index], 16, buf, BUFSIZE);
+                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
                 
                 u32_new_chunk_id = u32_old_chunk_id = 0;
                 progress_text_generate(u32_old_chunk_id, progress_buf, 16);
