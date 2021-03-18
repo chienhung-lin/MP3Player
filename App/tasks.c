@@ -66,7 +66,9 @@ typedef enum mp3_tk_cmd_type {
     MP3_TK_VOL_UP,
     MP3_TK_VOL_DOWN,
     MP3_TK_PREV,
-    MP3_TK_NEXT
+    MP3_TK_NEXT,    
+    MP3_TK_BKWARD,
+    MP3_TK_FRWARD
 } mp3_tk_cmd_t;
 
 typedef enum mp3_dr_cmd_type {
@@ -333,6 +335,16 @@ UI Objects
 #define NEXT_W (60U)
 #define NEXT_H (40U)
 
+#define BACKWARD_X (20U)
+#define BACKWARD_Y (270U)
+#define BACKWARD_W (60U)
+#define BACKWARD_H (40U)
+
+#define FORWARD_X (90U)
+#define FORWARD_Y (270U)
+#define FORWARD_W (60U)
+#define FORWARD_H (40U)
+
 static Adafruit_GFX_Button play_bu;
 static Adafruit_GFX_Button pause_bu;
 static Adafruit_GFX_Button stop_bu;
@@ -340,6 +352,8 @@ static Adafruit_GFX_Button vol_up_bu;
 static Adafruit_GFX_Button vol_down_bu;
 static Adafruit_GFX_Button prev_bu;
 static Adafruit_GFX_Button next_bu;
+static Adafruit_GFX_Button backd_bu;
+static Adafruit_GFX_Button forwd_bu;
 
 static void button_draw_callback(Adafruit_ILI9341 *, void *);
 
@@ -352,11 +366,13 @@ static mp3_tk_cmd_t ui_button_mp3_cmd_tbl[] = {
     MP3_TK_VOL_UP,
     MP3_TK_VOL_DOWN, 
     MP3_TK_PREV,
-    MP3_TK_NEXT
+    MP3_TK_NEXT,
+    MP3_TK_BKWARD,
+    MP3_TK_FRWARD
 };
 
 static char button_text_tbl[][16] = {
-    "PLAY", "PAUSE", "STOP", "V_UP", "V_DW", "PREV", "NEXT"
+    "PLAY", "PAUSE", "STOP", "V_UP", "V_DW", "PREV", "NEXT", "BACK", "FORW"
 };
 
 static ui_button_t button_array[] =
@@ -408,6 +424,20 @@ static ui_button_t button_array[] =
         UI_BUTTON_INFO_INIT(NEXT_X, NEXT_Y, NEXT_W, NEXT_H, 
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             ">", 2),
+        button_draw_callback, NULL
+    },
+    { 
+        UI_BUTTON, &backd_bu,
+        UI_BUTTON_INFO_INIT(BACKWARD_X, BACKWARD_Y, BACKWARD_W, BACKWARD_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "<<", 2),
+        button_draw_callback, NULL
+    },
+    { 
+        UI_BUTTON, &forwd_bu,
+        UI_BUTTON_INFO_INIT(FORWARD_X, FORWARD_Y, FORWARD_W, FORWARD_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            ">>", 2),
         button_draw_callback, NULL
     }
 };
@@ -1148,7 +1178,6 @@ void Mp3DriverTask(void* pdata)
     }
 
     static char mp3_files_table[100][16];
-    static char tmpt_file_name[16];
     static uint32_t u32_max_files = 0;
     
     while ((file = dir.openNextFile()) && u32_max_files < 100) {        
@@ -1183,7 +1212,8 @@ void Mp3DriverTask(void* pdata)
     static mp3_tk_cmd_t *mp3_tk_command_p = NULL;
     static display_tk_cmd_msg_t *cmd_msg_p = NULL;
     static mp3_tk_cmd_t mp3_tk_command = MP3_TK_NONE;
-    static mp3_dr_cmd_t mp3_dr_command = MP3_DR_NONE;
+    static mp3_dr_cmd_t mp3_cmd_queue [3];
+    static uint32_t cmd_in = 0, cmd_out = 0;
     
 #define CHUNCK_SIZE 100
     
@@ -1210,7 +1240,6 @@ void Mp3DriverTask(void* pdata)
         }
         
         mp3_tk_command = MP3_TK_NONE;
-        mp3_dr_command = MP3_DR_NONE;
         
         // copy command from mailbox
         // even though no task will modify mailbox message, copy it to avoid sharing data
@@ -1252,7 +1281,7 @@ void Mp3DriverTask(void* pdata)
                 
                 u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
                 
-                mp3_dr_command = MP3_DR_SOFT_RESET;
+                mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
             }
             if (isplay) { 
                 isplay = 0;
@@ -1261,7 +1290,7 @@ void Mp3DriverTask(void* pdata)
         case MP3_TK_VOL_UP:
             if (mp3_vol < sizeof(vol_tbl)/sizeof(vol_tbl[0])) {
                 ++mp3_vol;
-                mp3_dr_command = MP3_DR_VOL_CHANGE;
+                mp3_cmd_queue[cmd_in++] = MP3_DR_VOL_CHANGE;
                 
                 vol_text_generate(mp3_vol, vol_buf, 16);
                 u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
@@ -1270,7 +1299,7 @@ void Mp3DriverTask(void* pdata)
         case MP3_TK_VOL_DOWN:
             if (mp3_vol > 0) {
                 --mp3_vol;
-                mp3_dr_command = MP3_DR_VOL_CHANGE;
+                mp3_cmd_queue[cmd_in++] = MP3_DR_VOL_CHANGE;
                 
                 vol_text_generate(mp3_vol, vol_buf, 16);
                 u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
@@ -1279,6 +1308,9 @@ void Mp3DriverTask(void* pdata)
         case MP3_TK_PREV:
             if (u32_name_index > 0) {
                 --u32_name_index;
+            } else {
+                u32_name_index = (u32_max_files - 1);
+            }
                 
                 if (file) {
                     
@@ -1286,7 +1318,7 @@ void Mp3DriverTask(void* pdata)
                                   
                     isplay = 0;
                     // to clear rest data in vs1053
-                    mp3_dr_command = MP3_DR_SOFT_RESET;
+                    mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
                 }
                 
                 u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
@@ -1297,19 +1329,21 @@ void Mp3DriverTask(void* pdata)
                 
                 u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
                 
-            }
+            
             break;
         case MP3_TK_NEXT:
-            if (u32_name_index < u32_max_files) {
+            if (u32_name_index < (u32_max_files - 1)) {
                 ++u32_name_index;
-                
+            } else {
+                u32_name_index = 0;
+            }
                 if (file) {
                     
                     file.close();
                                    
                     isplay = 0;
                     // to clear rest data in vs1053
-                    mp3_dr_command = MP3_DR_SOFT_RESET;                  
+                    mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;                  
                 }
                 
                 u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
@@ -1320,6 +1354,80 @@ void Mp3DriverTask(void* pdata)
                 
                 u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
                 
+            
+            break;
+        case MP3_TK_BKWARD:
+            if (file) {
+                
+                uint32_t u32_new_seek, u32_tmpt_chunk;
+                
+                u32_tmpt_chunk = u32_new_chunk_id;
+                
+                if (u32_tmpt_chunk >= 10) {
+                    u32_tmpt_chunk -= 10;
+                } else {
+                    u32_tmpt_chunk = 0;
+                }
+                    
+                u32_new_seek = u32_tmpt_chunk * u32_filesize / 100;
+                    
+                if ( file.seek(u32_new_seek) ) {
+                        
+                    u32_old_chunk_id = u32_new_chunk_id;
+                    u32_new_chunk_id = u32_tmpt_chunk;
+                        
+                    u32_playsize = u32_new_seek;
+
+                    if (u32_new_chunk_id != u32_old_chunk_id) {
+                        u32_old_chunk_id = u32_new_chunk_id;
+
+                        progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                        u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+
+                        u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
+                    }
+                        
+                    // update progress bar
+                                               
+                    //mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
+                }
+            }
+            break;
+        case MP3_TK_FRWARD:
+            if (file) {
+                
+                uint32_t u32_new_seek, u32_tmpt_chunk;
+                
+                u32_tmpt_chunk = u32_new_chunk_id;
+                
+                if (u32_tmpt_chunk <= 90) {
+                    u32_tmpt_chunk += 10;
+                } else {
+                    u32_tmpt_chunk = 100;
+                }
+                    
+                u32_new_seek = u32_tmpt_chunk * u32_filesize / 100;
+                    
+                if ( file.seek(u32_new_seek) ) {
+                        
+                    u32_old_chunk_id = u32_new_chunk_id;
+                    u32_new_chunk_id = u32_tmpt_chunk;
+                        
+                    u32_playsize = u32_new_seek;
+
+                    if (u32_new_chunk_id != u32_old_chunk_id) {
+                        u32_old_chunk_id = u32_new_chunk_id;
+
+                        progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+                        u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+
+                        u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
+                    }
+                        
+                    // update progress bar
+                                               
+                    //mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
+                }
             }
             break;
         case MP3_TK_NONE:
@@ -1328,15 +1436,15 @@ void Mp3DriverTask(void* pdata)
             ;
         }
 
-        if (mp3_dr_command == MP3_DR_NONE && isplay) {
+        if (isplay) {
             if (file.available()) {
                 nbytes = MP3_BUF_SIZE;
                 nbytes = file.read(u8_mp3_buff, nbytes);
                 u32_playsize += nbytes;
                 
-                mp3_dr_command = MP3_DR_PLAY_CHUNK;
+                mp3_cmd_queue[cmd_in++] = MP3_DR_PLAY_CHUNK;
                 
-                u32_new_chunk_id = u32_playsize * CHUNCK_SIZE / u32_filesize;
+                u32_new_chunk_id = u32_playsize * CHUNCK_SIZE / u32_filesize; // divie zero trap??
                 
                 if (u32_new_chunk_id != u32_old_chunk_id) {
                     u32_old_chunk_id = u32_new_chunk_id;
@@ -1354,25 +1462,32 @@ void Mp3DriverTask(void* pdata)
                 u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
                 
                 file.close();
+                u32_playsize = 0;
+                u32_filesize = 0;
                 isplay = 0;
+                mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
             }
         }
         
-        switch (mp3_dr_command) {
-        case MP3_DR_PLAY_CHUNK:
-            Mp3Stream(hMp3, u8_mp3_buff, nbytes);
-            break;
-        case MP3_DR_VOL_CHANGE:
-            Mp3SetVol(hMp3, vol_tbl[mp3_vol], vol_tbl[mp3_vol]);
-            break;
-        case MP3_DR_SOFT_RESET:
-            Mp3SoftReset(hMp3);
-            break;
-        case MP3_DR_NONE:
-            break;
-        default:
-            ;
+        for (cmd_out; cmd_out < cmd_in; ++cmd_out) {
+            switch (mp3_cmd_queue[cmd_out]) {
+            case MP3_DR_PLAY_CHUNK:
+                Mp3Stream(hMp3, u8_mp3_buff, nbytes);
+                break;
+            case MP3_DR_VOL_CHANGE:
+                Mp3SetVol(hMp3, vol_tbl[mp3_vol], vol_tbl[mp3_vol]);
+                break;
+            case MP3_DR_SOFT_RESET:
+                Mp3SoftReset(hMp3);
+                break;
+            case MP3_DR_NONE:
+                break;
+            default:
+                ;
+            }
         }
+        cmd_out = cmd_in = 0;
+        
         //OSTimeDly(30);
     }
 }

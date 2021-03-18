@@ -2507,6 +2507,9 @@
                 </file>
             </group>
         </group>
+        <configuration>
+            <name>Debug</name>
+        </configuration>
     </group>
     <group>
         <name>BSP</name>
