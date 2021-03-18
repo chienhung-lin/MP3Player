@@ -169,6 +169,12 @@ typedef struct ui_callback_arg_type {
     char *print_buf;
     uint32_t len;
     void *ui_obj;
+    union {
+        struct {
+            uint32_t u32_value0;
+            uint32_t u32_value1;
+        };
+    };
 } ui_callback_arg_t;
 
 typedef struct display_tk_cmd_msg_type {
@@ -515,16 +521,36 @@ static void progress_bar_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg)
     ui_callback_arg_t *cmd_arg_p = (ui_callback_arg_t *)_arg;
     ui_progressbar_t *progressbar_p;
     ui_progressbar_info_t *info_p;
-    uint32_t bar_w = 0;
+    uint32_t new_curr, new_total;
+    uint32_t new_bar_w, old_bar_w = 0;
     
     cmd_arg_p = (ui_callback_arg_t *)_arg;
     progressbar_p = (ui_progressbar_t *)cmd_arg_p->ui_obj;
     info_p = &progressbar_p->progress_info;
+    new_curr = cmd_arg_p->u32_value0;
+    new_total = cmd_arg_p->u32_value1;
     
-    bar_w = info_p->rec_w * progressbar_p->curr / progressbar_p->total;
+    old_bar_w = info_p->rec_w * progressbar_p->curr / progressbar_p->total;
+    new_bar_w = info_p->rec_w * new_curr / new_total;
     
-    _gfx->fillRect(info_p->rec_x, info_p->rec_y, info_p->rec_w, info_p->rec_h, info_p->bg_fill);
-    _gfx->fillRect(info_p->rec_x, info_p->rec_y, bar_w, info_p->rec_h, info_p->bar_fill);
+    // if need to update
+    if (new_bar_w != old_bar_w) {
+        // progress bar increase
+        if (new_bar_w > old_bar_w) {
+            _gfx->fillRect(info_p->rec_x + old_bar_w, info_p->rec_y, new_bar_w - old_bar_w, info_p->rec_h, info_p->bar_fill);
+        
+        // progress bar decrease
+        } else if (new_bar_w < old_bar_w) {
+            _gfx->fillRect(info_p->rec_x + new_bar_w, info_p->rec_y, old_bar_w - new_bar_w, info_p->rec_h, info_p->bg_fill);
+        }
+    // edge condition for initial bar
+    } else if (new_bar_w == 0){
+        _gfx->fillRect(info_p->rec_x + new_bar_w, info_p->rec_y, info_p->rec_w, info_p->rec_h, info_p->bg_fill);
+    }
+    
+    // update curr progress and total progress
+    progressbar_p->curr = new_curr;
+    progressbar_p->total =  new_total;
 }
 
 static void button_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg)
@@ -919,13 +945,16 @@ void LcdDisplayTask(void* pdata)
                 progressbar = (ui_progressbar_t *) cmd_msg.ui_obj;
                 
                 // update curr and total progress value in progress bar
-                progressbar->curr = cmd_msg.u32_value0;
-                progressbar->total = cmd_msg.u32_value1;
+//                progressbar->curr = cmd_msg.u32_value0;
+//                progressbar->total = cmd_msg.u32_value1;
                 
                 // prepare passing argument to callback function
                 ui_callback_arg.ui_obj = cmd_msg.ui_obj;
                 ui_callback_arg.print_buf = buf;
                 ui_callback_arg.len = BUFSIZE;
+                
+                ui_callback_arg.u32_value0 = cmd_msg.u32_value0;
+                ui_callback_arg.u32_value1 = cmd_msg.u32_value1;
                 
                 progressbar->draw_callback(&lcdCtrl, (void *)&ui_callback_arg);
                 break;
