@@ -68,7 +68,8 @@ typedef enum mp3_tk_cmd_type {
     MP3_TK_PREV,
     MP3_TK_NEXT,    
     MP3_TK_BKWARD,
-    MP3_TK_FRWARD
+    MP3_TK_FRWARD,
+    MP3_TK_AUTOPLAY
 } mp3_tk_cmd_t;
 
 typedef enum mp3_dr_cmd_type {
@@ -192,56 +193,6 @@ typedef struct display_tk_cmd_msg_type {
     };
 } display_tk_cmd_msg_t;
 
-/*******************************************************************************
-
-    MP3 32bits data structure
-
-*******************************************************************************/
-
-#if 0
-
-#define MASK(bitlen, offset) (((1<<(bitlen))-1) << offset)
-
-#define MPEG_VERSION_OFFSET (19)
-#define MPEG_BITS (2)
-#define MPEG_VERSION_MASK MASK(MPEG_BITS, MPEG_VERSION_OFFSET)
-#define MPEG_VERSION(n) ((n) & MPEG_VERSION_MASK)
-
-#define LAYER_OFFSET (17)
-#define LAYER_BITS (2)
-#define LAYER_MASK MASK(LAYER_BITS, LAYER_OFFSET)
-#define LAYER(n) ((n) & LAYER_MASK)
-
-#define BIT_RATES_OFFSET (12)
-#define BIT_RATES_BITS (4)
-#define BIT_RATES_MASK MASK(BIT_RATES_BITS, BIT_RATES_OFFSET)
-#define BIT_RATES(n) ((n) & BIT_RATES_MASK)
-
-typedef uint32_t mp3_chunk_t;
-
-#define FREE_BIT_RATE (0)
-#define BAD_BIT_RATE (0xFFFF)
-
-uint16_t bit_rates_tbl[2][3][16] =
-{
-  {
-    { 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0xFFFF },
-    { 0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0xFFFF },
-    { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0xFFFF }
-  },
-  {
-    { 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0xFFFF },
-    { 0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0xFFFF },
-    { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0xFFFF }
-  }
-}
-
-static uint16_t get_bit_rates(uint32_t u32_mp3_)
-{
-}
-
-#endif
-
 /************************************************************************************
 
    Allocate the stacks for each task.
@@ -345,6 +296,11 @@ UI Objects
 #define FORWARD_W (60U)
 #define FORWARD_H (40U)
 
+#define AUTO_X (20U)
+#define AUTO_Y (120U)
+#define AUTO_W (60U)
+#define AUTO_H (40U)
+
 static Adafruit_GFX_Button play_bu;
 static Adafruit_GFX_Button pause_bu;
 static Adafruit_GFX_Button stop_bu;
@@ -354,10 +310,13 @@ static Adafruit_GFX_Button prev_bu;
 static Adafruit_GFX_Button next_bu;
 static Adafruit_GFX_Button backd_bu;
 static Adafruit_GFX_Button forwd_bu;
+static Adafruit_GFX_Button auto_bu;
 
 static void button_draw_callback(Adafruit_ILI9341 *, void *);
 
 #define UI_BUTTON_SIZES (sizeof(button_array)/sizeof(button_array[0]))
+
+#define BU_AUTO_ID 9
 
 static mp3_tk_cmd_t ui_button_mp3_cmd_tbl[] = { 
     MP3_TK_PLAY, 
@@ -368,11 +327,12 @@ static mp3_tk_cmd_t ui_button_mp3_cmd_tbl[] = {
     MP3_TK_PREV,
     MP3_TK_NEXT,
     MP3_TK_BKWARD,
-    MP3_TK_FRWARD
+    MP3_TK_FRWARD,
+    MP3_TK_AUTOPLAY
 };
 
 static char button_text_tbl[][16] = {
-    "PLAY", "PAUSE", "STOP", "V_UP", "V_DW", "PREV", "NEXT", "BACK", "FORW"
+    "PLAY", "PAUSE", "STOP", "V_UP", "V_DW", "PREV", "NEXT", "BACK", "FORW", "AUTO"
 };
 
 static ui_button_t button_array[] =
@@ -439,6 +399,13 @@ static ui_button_t button_array[] =
                             ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
                             ">>", 2),
         button_draw_callback, NULL
+    },
+    { 
+        UI_BUTTON, &auto_bu,
+        UI_BUTTON_INFO_INIT(AUTO_X, AUTO_Y, AUTO_W, AUTO_H, 
+                            ILI9341_WHITE, ILI9341_BLACK, ILI9341_WHITE,
+                            "AUTO", 2),
+        button_draw_callback, NULL
     }
 };
 #endif
@@ -484,10 +451,21 @@ static ui_button_t button_array[] =
 #define PRO_TEXT_COLOR ILI9341_WHITE
 #define PRO_TEXT_SIZE (2)
 
+#define AUTO_TEXT_RECT_X (170U)
+#define AUTO_TEXT_RECT_Y (120U)
+#define AUTO_TEXT_RECT_W (60U)
+#define AUTO_TEXT_RECT_H (40U)
+#define AUTO_TEXT_X (174U)
+#define AUTO_TEXT_Y (124U)
+#define AUTO_TEXT_FILL ILI9341_MAROON
+#define AUTO_TEXT_COLOR ILI9341_WHITE
+#define AUTO_TEXT_SIZE (2)
+
 #define SONG_TEXTBOX_ID 0
 #define BU_TEXTBOX_ID 1
 #define VOL_TEXTBOX_ID 2
 #define PRO_BAR_TEXTBOX_ID 3
+#define AUTO_TEXTBOX_ID 4
 
 static void textbox_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg);
 
@@ -520,13 +498,20 @@ static ui_textbox_t ui_textbox_tbl[] =
                      PRO_TEXT_X, PRO_TEXT_Y, PRO_TEXT_FILL, PRO_TEXT_COLOR,
                      PRO_TEXT_SIZE, ""),
         textbox_draw_callback
+    },
+    {
+        UI_TEXTBOX,
+        TEXT_INFO_INIT(AUTO_TEXT_RECT_X, AUTO_TEXT_RECT_Y, AUTO_TEXT_RECT_W, AUTO_TEXT_RECT_H, 
+                     AUTO_TEXT_X, AUTO_TEXT_Y, AUTO_TEXT_FILL, AUTO_TEXT_COLOR,
+                     AUTO_TEXT_SIZE, "AUTO\nOFF"),
+        textbox_draw_callback
     }
 };
 
 #define SONG_PROBAR_REC_X (10U)
-#define SONG_PROBAR_REC_Y (110U)
+#define SONG_PROBAR_REC_Y (100U)
 #define SONG_PROBAR_REC_W (220U)
-#define SONG_PROBAR_REC_H (20U)
+#define SONG_PROBAR_REC_H (10U)
 #define SONG_PROBAR_BAR ILI9341_WHITE
 #define SONG_PROBAR_BG ILI9341_BLACK
 
@@ -625,6 +610,13 @@ static void textbox_draw_callback(Adafruit_ILI9341 *_gfx, void *_arg)
     
     while (u32_count < 16 && *p != '\0') {
         _gfx->write(*p);
+        
+        // after printting '\n', x cursor will be set as 0
+        // reset x cursor to alian first textline x
+        if (*p == '\n') {        
+            _gfx->setCursor(info_p->text_x, _gfx->getCursorY());
+        }
+        
         ++p;
         ++u32_count;
     }
@@ -838,6 +830,7 @@ static void DrawButtons2(char *print_buf, uint32_t u32_len)
     
     for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {        
         button_draw(&button_array[u32_i], print_buf, u32_len);
+        OSTimeDly(5);
     }
 }
 
@@ -895,11 +888,10 @@ void LcdDisplayTask(void* pdata)
     lcdCtrl.drawRect(10, 110, 220, 40, ILI9341_MAROON);
     
     //DrawButtons(&lcdCtrl);
-    DrawButtons2(buf, BUFSIZE);
     
     PrintWithBuf(buf, BUFSIZE, "Display Task waits for Touch task");
     
-    u8_error = OSTaskSuspend(OS_PRIO_SELF);
+    //u8_error = OSTaskSuspend(OS_PRIO_SELF);
     
     if (u8_error != OS_ERR_NONE) {
         PrintWithBuf(buf, BUFSIZE, "Error: Display Task returned from suspend %d\n", u8_error);
@@ -1051,14 +1043,11 @@ void TouchTask(void* pdata)
         PrintWithBuf(buf, BUFSIZE, "Couldn't start FT6206 touchscreen controller\n");
         while (1);
     }
-    
-    u8_error = OSTaskResume(DISPLAY_TASK_PRIO);
         
     if (u8_error != OS_ERR_NONE) {
         PrintWithBuf(buf, BUFSIZE, "Touch Task resume display task error: %d\n", u8_error);
     }
     
-    display_tk_cmd_msg_t *cmd_msg_p;
     uint32_t button_match = 0, u32_i;
     ui_button_t *bu;
 
@@ -1204,16 +1193,17 @@ void Mp3DriverTask(void* pdata)
     
     static uint8_t vol_tbl[] = 
         { 0xFE, 0x50, 0x40, 0x3B, 0x38, 0x30, 0x2C, 0x26, 0x24, 0x23 };
+    static char auto_label[][16] = { "AUTO\nOFF", "AUTO\nON" };
     static char progress_buf[16];
     static char vol_buf[16];
     static uint32_t u32_name_index = 0, u32_filesize = 0, isplay = 0;
     static uint32_t u32_playsize, u32_new_chunk_id = 0, u32_old_chunk_id = 0;
     static uint8_t mp3_vol = 0, u8_error;
     static mp3_tk_cmd_t *mp3_tk_command_p = NULL;
-    static display_tk_cmd_msg_t *cmd_msg_p = NULL;
     static mp3_tk_cmd_t mp3_tk_command = MP3_TK_NONE;
     static mp3_dr_cmd_t mp3_cmd_queue [3];
     static uint32_t cmd_in = 0, cmd_out = 0;
+    static uint32_t isautoplay = 0;
     
 #define CHUNCK_SIZE 100
     
@@ -1221,16 +1211,28 @@ void Mp3DriverTask(void* pdata)
     
     Mp3SetVol(hMp3, vol_tbl[mp3_vol], vol_tbl[mp3_vol]);
     
-    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
+    DrawButtons2(buf, BUFSIZE);
     
+    // initial song text box
+    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
+    OSTimeDly(5);
+    
+    // initial button text box
+    u8_error = textbox_update(&ui_textbox_tbl[BU_TEXTBOX_ID], "", 16, buf, BUFSIZE);
+    OSTimeDly(5);
+    
+    // initial
     vol_text_generate(mp3_vol, vol_buf, 16);
-    u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
+    u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE);
+    OSTimeDly(5);
     
     progress_text_generate(u32_old_chunk_id, progress_buf, 16);
     u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+    OSTimeDly(5);
     
     u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
-    
+    OSTimeDly(5);
+        
     while (1)
     {
         if (isplay) {
@@ -1312,24 +1314,28 @@ void Mp3DriverTask(void* pdata)
                 u32_name_index = (u32_max_files - 1);
             }
                 
-                if (file) {
+            if (file) {
                     
-                    file.close();
-                                  
-                    isplay = 0;
-                    // to clear rest data in vs1053
-                    mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
-                }
-                
-                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
-                
+                file.close();                
+
+                file = SD.open(mp3_files_table[u32_name_index], O_READ);
+                u32_filesize = file.size();
+                u32_playsize = 0;
                 u32_new_chunk_id = u32_old_chunk_id = 0;
-                progress_text_generate(u32_old_chunk_id, progress_buf, 16);
-                u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
                 
-                u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
+                if (!isautoplay) isplay = 0;
                 
+                // to clear rest data in vs1053
+                mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
+            }
             
+            u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
+                
+            u32_new_chunk_id = u32_old_chunk_id = 0;
+            progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+            u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+                
+            u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
             break;
         case MP3_TK_NEXT:
             if (u32_name_index < (u32_max_files - 1)) {
@@ -1337,23 +1343,29 @@ void Mp3DriverTask(void* pdata)
             } else {
                 u32_name_index = 0;
             }
-                if (file) {
+            
+            if (file) {
                     
-                    file.close();
-                                   
-                    isplay = 0;
-                    // to clear rest data in vs1053
-                    mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;                  
-                }
-                
-                u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
-                
+                file.close();                
+
+                file = SD.open(mp3_files_table[u32_name_index], O_READ);
+                u32_filesize = file.size();
+                u32_playsize = 0;
                 u32_new_chunk_id = u32_old_chunk_id = 0;
-                progress_text_generate(u32_old_chunk_id, progress_buf, 16);
-                u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
                 
-                u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
+                if (!isautoplay) isplay = 0;
                 
+                // to clear rest data in vs1053
+                mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
+            }
+                
+            u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
+                
+            u32_new_chunk_id = u32_old_chunk_id = 0;
+            progress_text_generate(u32_old_chunk_id, progress_buf, 16);
+            u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
+                
+            u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);                
             
             break;
         case MP3_TK_BKWARD:
@@ -1389,7 +1401,7 @@ void Mp3DriverTask(void* pdata)
                         
                     // update progress bar
                                                
-                    //mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
+                    mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
                 }
             }
             break;
@@ -1426,9 +1438,17 @@ void Mp3DriverTask(void* pdata)
                         
                     // update progress bar
                                                
-                    //mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
+                    mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
                 }
             }
+            break;
+        case MP3_TK_AUTOPLAY:
+            if (isautoplay == 0) {
+                isautoplay = 1;
+            } else {
+                isautoplay = 0;
+            }
+            u8_error = textbox_update(&ui_textbox_tbl[AUTO_TEXTBOX_ID], auto_label[isautoplay], 16, buf, BUFSIZE);
             break;
         case MP3_TK_NONE:
             break;
@@ -1465,7 +1485,23 @@ void Mp3DriverTask(void* pdata)
                 u32_playsize = 0;
                 u32_filesize = 0;
                 isplay = 0;
-                mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
+                mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;                
+                
+                if (isautoplay) {
+                    
+                    ++u32_name_index;
+                    
+                    if (u32_name_index >= u32_max_files) {
+                        u32_name_index = 0;
+                    }
+                    
+                    file = SD.open(mp3_files_table[u32_name_index], O_READ);
+                    u32_filesize = file.size();
+                    
+                    u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
+                    
+                    isplay = 1;
+                }
             }
         }
         
