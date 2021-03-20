@@ -225,10 +225,10 @@ BOOLEAN nextSong = OS_FALSE;
 ********************************************************************************/
            
 static OS_EVENT *mp3_tk_cmd_mb = NULL;
-//static OS_EVENT *display_tk_cmd_mb = NULL;
+static OS_EVENT *diplay_tk_cmd_queue = NULL;
+static OS_FLAG_GRP *init_event_group = NULL;
 
 #define DISPLAY_TK_CMD_Q_SIZE 20
-static OS_EVENT *diplay_tk_cmd_queue = NULL;
 static void *display_tk_cmd_q_tbl[DISPLAY_TK_CMD_Q_SIZE];
 
 /*******************************************************************************
@@ -447,7 +447,7 @@ static ui_button_t button_array[] =
 #define PRO_TEXT_RECT_H (40U)
 #define PRO_TEXT_X (170U)
 #define PRO_TEXT_Y (64U)
-#define PRO_TEXT_FILL ILI9341_MAROON
+#define PRO_TEXT_FILL ILI9341_DARKGREEN
 #define PRO_TEXT_COLOR ILI9341_WHITE
 #define PRO_TEXT_SIZE (2)
 
@@ -766,9 +766,14 @@ void StartupTask(void* pdata)
     // Create the event objects
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the event objects\n");
     
-    // Create mail box
+    // Create message mail box
     mp3_tk_cmd_mb = OSMboxCreate((void *)0);
+    
+    // Create message queue
     diplay_tk_cmd_queue = OSQCreate(display_tk_cmd_q_tbl,DISPLAY_TK_CMD_Q_SIZE);
+    
+    // Create event flags for synchornize three task initialzation process
+    init_event_group = OSFlagCreate(0x00, &u8_error);
     
     // Create the test tasks
     PrintWithBuf(buf, BUFSIZE, "StartupTask: Creating the application tasks\n");
@@ -776,7 +781,7 @@ void StartupTask(void* pdata)
     // The maximum number of tasks the application can have is defined by OS_MAX_TASKS in os_cfg.h
     OSTaskCreate(Mp3DriverTask, (void*)0, &Mp3DriverTaskStk[MP3_DRIVER_TASK_STK_SIZE-1], MP3_DRIVER_TASK_PRIO);
     OSTaskCreate(LcdDisplayTask, (void*)0, &LcdDisplayTaskStk[DISPLAY_TASK_STK_SIZE-1], DISPLAY_TASK_PRIO);
-    OSTaskCreate(Mp3PlayerTask, (void*)0, &Mp3PlayerTaskStk[MP3PLAY_TASK_STK_SIZE-1], MP3PLAY_TASK_PRIO);
+    //OSTaskCreate(Mp3PlayerTask, (void*)0, &Mp3PlayerTaskStk[MP3PLAY_TASK_STK_SIZE-1], MP3PLAY_TASK_PRIO);
     OSTaskCreate(TouchTask, (void*)0, &TouchTaskStk[TOUCH_TASK_STK_SIZE-1], TOUCH_TASKK_PRIO);
 
     // Delete ourselves, letting the work be done in the new tasks.
@@ -830,7 +835,7 @@ static void DrawButtons2(char *print_buf, uint32_t u32_len)
     
     for (u32_i = 0; u32_i < UI_BUTTON_SIZES; ++u32_i) {        
         button_draw(&button_array[u32_i], print_buf, u32_len);
-        OSTimeDly(5);
+        OSTimeDly(10);
     }
 }
 
@@ -847,6 +852,7 @@ void LcdDisplayTask(void* pdata)
     PjdfErrCode pjdfErr;
     uint8_t  u8_error;
     INT32U length;
+    uint16_t u16_grp_flag;
     
 
     char buf[BUFSIZE];
@@ -873,38 +879,32 @@ void LcdDisplayTask(void* pdata)
     lcdCtrl.begin();
 
     // UI Initialize
-    //DrawLcdContents();
+    PrintWithBuf(buf, BUFSIZE, "LcdDisplayTask post event group to mp3 task for notifying\n");
+    
+    // tell mp3 task that lcd initialization is finished
+    u16_grp_flag = OSFlagPost(init_event_group, 0x02, OS_FLAG_SET, &u8_error);
+    
+    if (u8_error != OS_ERR_NONE) {
+        PrintWithBuf(buf, BUFSIZE, "Error: LcdDisplayTask fails to set 0x02 in event group %d\n", u8_error);
+    }
     
     lcdCtrl.fillScreen(ILI9341_BLACK);
     
     // draw x axis and y axis grid
-    DrawGrid(&lcdCtrl, 0, 0, ILI9341_TFTWIDTH, ILI9341_TFTHEIGHT,
-             20, 20, ILI9341_WHITE);
+    DrawGrid(&lcdCtrl, 0, 0, ILI9341_TFTWIDTH, ILI9341_TFTHEIGHT, 20, 20, ILI9341_WHITE);
     
     // draw a rectangular for song name space
-    lcdCtrl.drawRect(10, 10, 220, 80, ILI9341_MAROON);
+    //lcdCtrl.drawRect(10, 10, 220, 80, ILI9341_MAROON);
     
     // draw a retangular for process bar
-    lcdCtrl.drawRect(10, 110, 220, 40, ILI9341_MAROON);
+    //lcdCtrl.drawRect(10, 110, 220, 40, ILI9341_MAROON);
     
     //DrawButtons(&lcdCtrl);
-    
-    PrintWithBuf(buf, BUFSIZE, "Display Task waits for Touch task");
-    
-    //u8_error = OSTaskSuspend(OS_PRIO_SELF);
-    
-    if (u8_error != OS_ERR_NONE) {
-        PrintWithBuf(buf, BUFSIZE, "Error: Display Task returned from suspend %d\n", u8_error);
-    }
     
     display_tk_cmd_msg_t *cmd_msg_p;
     display_tk_cmd_msg_t cmd_msg;
     ui_callback_arg_t ui_callback_arg;
 
-//    uint32_t u32_i;
-//    ui_button_t *bu;
-//    point_t *point_p;
-//    
     while (1) {
         
         // display task is event trigger task
@@ -1016,6 +1016,7 @@ void TouchTask(void* pdata)
     PjdfErrCode pjdfErr;
     INT8U  device_address, u8_error;
     INT32U length;
+    uint16_t u16_grp_flag;
 
     char buf[BUFSIZE];
     PrintWithBuf(buf, BUFSIZE, "TouchTask: starting\n");
@@ -1043,10 +1044,16 @@ void TouchTask(void* pdata)
         PrintWithBuf(buf, BUFSIZE, "Couldn't start FT6206 touchscreen controller\n");
         while (1);
     }
-        
-    if (u8_error != OS_ERR_NONE) {
-        PrintWithBuf(buf, BUFSIZE, "Touch Task resume display task error: %d\n", u8_error);
-    }
+
+    // finishing touch hardware perpherial initialization and post to mp3 task
+    u16_grp_flag = OSFlagPost(init_event_group, 0x01, OS_FLAG_SET, &u8_error);
+    
+//    // mp3 and display task finish ui initialization
+//    u16_grp_flag = OSFlagPend(init_event_group, 0x01, OS_FLAG_WAIT_CLR_ALL | OS_FLAG_CONSUME, 0, &u8_error);
+//    
+//    if (u8_error != OS_ERR_NONE) {
+//        PrintWithBuf(buf, BUFSIZE, "Touch Task resume display task error: %d\n", u8_error);
+//    }
     
     uint32_t button_match = 0, u32_i;
     ui_button_t *bu;
@@ -1135,6 +1142,9 @@ void Mp3DriverTask(void* pdata)
     INT32U length;
     uint32_t nbytes;
     File dir, file;
+    uint16_t u16_grp_flag;
+    uint8_t u8_error;
+    
     
     char buf[BUFSIZE];
     PrintWithBuf(buf, BUFSIZE, "Mp3DriverTask: starting\n");
@@ -1155,6 +1165,9 @@ void Mp3DriverTask(void* pdata)
     pjdfErr = Ioctl(hMp3, PJDF_CTRL_MP3_SET_SPI_HANDLE, &hSPI, &length);
     if(PJDF_IS_ERROR(pjdfErr)) while(1);
 
+    
+    // event bits wait for 2 bits set
+    
     // Send initialization data to the MP3 decoder and run a test
     PrintWithBuf(buf, BUFSIZE, "Starting MP3 Task\n");
     
@@ -1191,6 +1204,20 @@ void Mp3DriverTask(void* pdata)
     Mp3Init(hMp3);
     Mp3StreamInit(hMp3);
     
+    // wait display and touch task ready
+    u16_grp_flag = OSFlagPend(init_event_group, 0x03, OS_FLAG_WAIT_SET_ALL | OS_FLAG_CONSUME, 0, &u8_error);
+    
+    if (u8_error != OS_ERR_NONE) {
+        PrintWithBuf(buf, BUFSIZE, "Error: Mp3 Task fails to pend on event group %d\n", u8_error);
+    }
+    
+//    // display unblock first, and then unblock touch task after finishing ui initialization
+//    u16_grp_flag = OSFlagPost(init_event_group, 0x02, OS_FLAG_SET, &u8_error);
+//
+//    if (u8_error != OS_ERR_NONE) {
+//        PrintWithBuf(buf, BUFSIZE, "Error: Mp3 Task fails to post event group to lcd task %d\n", u8_error);
+//    }
+    
     static uint8_t vol_tbl[] = 
         { 0xFE, 0x50, 0x40, 0x3B, 0x38, 0x30, 0x2C, 0x26, 0x24, 0x23 };
     static char auto_label[][16] = { "AUTO\nOFF", "AUTO\nON" };
@@ -1198,7 +1225,7 @@ void Mp3DriverTask(void* pdata)
     static char vol_buf[16];
     static uint32_t u32_name_index = 0, u32_filesize = 0, isplay = 0;
     static uint32_t u32_playsize, u32_new_chunk_id = 0, u32_old_chunk_id = 0;
-    static uint8_t mp3_vol = 0, u8_error;
+    static uint8_t mp3_vol = 5;
     static mp3_tk_cmd_t *mp3_tk_command_p = NULL;
     static mp3_tk_cmd_t mp3_tk_command = MP3_TK_NONE;
     static mp3_dr_cmd_t mp3_cmd_queue [3];
@@ -1215,24 +1242,30 @@ void Mp3DriverTask(void* pdata)
     
     // initial song text box
     u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
-    OSTimeDly(5);
+    OSTimeDly(30);
     
     // initial button text box
     u8_error = textbox_update(&ui_textbox_tbl[BU_TEXTBOX_ID], "", 16, buf, BUFSIZE);
-    OSTimeDly(5);
+    OSTimeDly(30);
     
-    // initial
+    // initial vol text box
     vol_text_generate(mp3_vol, vol_buf, 16);
     u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE);
-    OSTimeDly(5);
+    OSTimeDly(30);
     
+    // initial progress text box
     progress_text_generate(u32_old_chunk_id, progress_buf, 16);
     u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
-    OSTimeDly(5);
+    OSTimeDly(30);
     
+    // initial auto flag text box
+    u8_error = textbox_update(&ui_textbox_tbl[AUTO_TEXTBOX_ID], auto_label[isautoplay], 16, buf, BUFSIZE);
+    OSTimeDly(30);
+    
+    // initial progress bar
     u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
-    OSTimeDly(5);
-        
+    OSTimeDly(30);
+    
     while (1)
     {
         if (isplay) {
