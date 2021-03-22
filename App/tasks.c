@@ -975,6 +975,8 @@ void LcdDisplayTask(void* pdata)
                 ui_callback_arg.print_buf = buf;
                 ui_callback_arg.len = BUFSIZE;
                 
+                // value 0 is current progress
+                // value 1 is total progress
                 ui_callback_arg.u32_value0 = cmd_msg.u32_value0;
                 ui_callback_arg.u32_value1 = cmd_msg.u32_value1;
                 
@@ -1291,10 +1293,11 @@ void Mp3DriverTask(void* pdata)
                     u32_playsize = 0;
                     u32_new_chunk_id = u32_old_chunk_id = 0;
                     
-    
+                    // generate progress number text. Ex: 55%\0
                     progress_text_generate(u32_old_chunk_id, progress_buf, 16);
                     u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
                     
+                    // update progress bar
                     u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
 
                 }
@@ -1311,9 +1314,12 @@ void Mp3DriverTask(void* pdata)
                 file.close();
                 
                 u32_new_chunk_id = u32_old_chunk_id = 0;
+                
+                // update progress number to 0%
                 progress_text_generate(u32_old_chunk_id, progress_buf, 16);
                 u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
                 
+                // update progress bar to empty
                 u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
                 
                 mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
@@ -1327,6 +1333,7 @@ void Mp3DriverTask(void* pdata)
                 ++mp3_vol;
                 mp3_cmd_queue[cmd_in++] = MP3_DR_VOL_CHANGE;
                 
+                // update song name on dislplay board
                 vol_text_generate(mp3_vol, vol_buf, 16);
                 u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
             }
@@ -1336,6 +1343,7 @@ void Mp3DriverTask(void* pdata)
                 --mp3_vol;
                 mp3_cmd_queue[cmd_in++] = MP3_DR_VOL_CHANGE;
                 
+                // update song name on dislplay board
                 vol_text_generate(mp3_vol, vol_buf, 16);
                 u8_error = textbox_update(&ui_textbox_tbl[VOL_TEXTBOX_ID], vol_buf, 16, buf, BUFSIZE); 
             }
@@ -1362,12 +1370,16 @@ void Mp3DriverTask(void* pdata)
                 mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
             }
             
+            // update song name on lcd board
             u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
                 
             u32_new_chunk_id = u32_old_chunk_id = 0;
+            
+            // update progress number on lcd board
             progress_text_generate(u32_old_chunk_id, progress_buf, 16);
             u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
-                
+
+            // update progress bar
             u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
             break;
         case MP3_TK_NEXT:
@@ -1391,13 +1403,17 @@ void Mp3DriverTask(void* pdata)
                 // to clear rest data in vs1053
                 mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET;
             }
-                
+            
+            // update song name on lcd board
             u8_error = textbox_update(&ui_textbox_tbl[SONG_TEXTBOX_ID], mp3_files_table[u32_name_index], 16, buf, BUFSIZE);
                 
             u32_new_chunk_id = u32_old_chunk_id = 0;
+            
+            // update progress number on lcd board
             progress_text_generate(u32_old_chunk_id, progress_buf, 16);
             u8_error = textbox_update(&ui_textbox_tbl[PRO_BAR_TEXTBOX_ID], progress_buf, 16, buf, BUFSIZE);
-                
+
+            // update progress bar
             u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);                
             
             break;
@@ -1415,14 +1431,17 @@ void Mp3DriverTask(void* pdata)
                 }
                     
                 u32_new_seek = u32_tmpt_chunk * u32_filesize / 100;
-                    
+
+                // if set file seek successfully,
+                //   update new_chunk_id and lcd board
                 if ( file.seek(u32_new_seek) ) {
                         
                     u32_old_chunk_id = u32_new_chunk_id;
                     u32_new_chunk_id = u32_tmpt_chunk;
                         
                     u32_playsize = u32_new_seek;
-
+                    
+                    // the precision is 1
                     if (u32_new_chunk_id != u32_old_chunk_id) {
                         u32_old_chunk_id = u32_new_chunk_id;
 
@@ -1431,9 +1450,8 @@ void Mp3DriverTask(void* pdata)
 
                         u8_error = progessbar_draw(&ui_progressbar_tbl[SONG_PROBAR_ID], u32_old_chunk_id, 100, buf, BUFSIZE);
                     }
-                        
-                    // update progress bar
-                                               
+                    
+                    // to clear rest data in vs1053
                     mp3_cmd_queue[cmd_in++] = MP3_DR_SOFT_RESET; 
                 }
             }
@@ -1538,6 +1556,7 @@ void Mp3DriverTask(void* pdata)
             }
         }
         
+        // pop all commands in queue
         for (cmd_out; cmd_out < cmd_in; ++cmd_out) {
             switch (mp3_cmd_queue[cmd_out]) {
             case MP3_DR_PLAY_CHUNK:
